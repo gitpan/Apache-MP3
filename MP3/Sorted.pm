@@ -6,8 +6,11 @@ package Apache::MP3::Sorted;
 use strict;
 use Apache::MP3;
 use CGI 'param';
-use vars '@ISA';
+use vars qw(@ISA $VERSION);
 @ISA = 'Apache::MP3';
+
+$VERSION = 1.00;
+# $Id$
 
 # to choose the right type of sort for each of the mp3 fields
 my %sort_modes = (

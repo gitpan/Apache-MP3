@@ -104,6 +104,23 @@ CHANGES
 
 Revision history for Perl extension Apache::MP3.
 
+2.08 Wed Aug 30 22:39:38 EDT 2000
+	Added playlist functionality.
+	Temporarily changed form POST method to GET to work around an (apparent) bug
+		in mod_perl's ability to redirect from a POST to a GET (Apache hangs
+		after returning from handler).  It "used to work" just fine.
+	Suppressed appearance of authentication information
+		XMMS/WinAmp scrolling marquee
+
+2.07 Sat Aug 26 13:49:30 EDT 2000
+	Fixed caching routines so that information about failed mp3_info()
+		lookups is cached as well.
+
+2.06 Fri Aug 25 23:39:00 EDT 2000
+	Fixed bug in [stream] button that caused module to fail on
+		directories containing parentheses and other RE
+		metacharacters
+
 2.05 Fri Aug 25 08:10:04 EDT 2000
 	Changed directory layout to get faster loading
 	Now supports HTTP authentication (passwords)

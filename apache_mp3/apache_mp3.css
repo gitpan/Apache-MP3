@@ -76,3 +76,7 @@ DIV  {
 ADDRESS {
   font-family: sans-serif;
 }
+
+.playlist {
+  background-color: #FFE89B;
+}

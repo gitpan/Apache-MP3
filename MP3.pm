@@ -11,7 +11,8 @@ use vars '$VERSION','@ISA';
 # @ISA = 'Apache';
 my $CRLF = "\015\012";
 
-$VERSION = '2.06';
+$VERSION = '2.08';
+# $Id$
 
 # defaults:
 use constant BASE_DIR     => '/apache_mp3';
@@ -108,7 +109,7 @@ sub run {
 sub process_directory {
   my $self = shift;
   my $dir = shift;
-  
+
   unless ($self->r->path_info){
     #Issue an external redirect if the dir isn't tailed with a '/'
     my $uri = $self->r->uri;
@@ -183,7 +184,7 @@ sub find_mp3s {
 
   my $uris = $self->_find_mp3s($dir,$recurse);
   foreach (@$uris) {
-    substr($_,0,length($dir)) = '' if index($_,$dir) == 0; # strip directory part
+    substr($_,0,length($dir)+1) = '' if index($_,$dir) == 0; # strip directory part
     $_ = "$uri/$_";
   }
   return $uris;
@@ -460,20 +461,26 @@ sub mp3_list_top {
   my $uri = $self->r->uri;  # for self referencing
   $uri =~ s!([^a-zA-Z0-9/])!uc sprintf("%%%02x",ord($1))!eg;
 
-  print start_form(-action=>"${uri}playlist.m3u");  
+  # apache and/or mod_perl has some problem redirecting from POST requests...
+  print start_form(-action=>"${uri}playlist.m3u",-method=>'GET');  
+#  print start_form(-action=>"${uri}playlist.m3u");
 
   print
     a({-name=>'cds'}),
     start_table({-border=>0,-cellspacing=>0,-width=>'100%'}),"\n";
 
   print  TR(td(),
-	    td({-align=>'LEFT',-colspan=>4},
-	       submit('Play Selected'),submit('Shuffle All'),submit('Play All'))) 
+	    td({-align=>'LEFT',-colspan=>4},$self->control_buttons))
     if $self->stream_ok and keys %$mp3s > $self->file_list_is_long;
 
   my $count = keys %$mp3s;
   print h2({-class=>'SongList'},"Song List ($count)"),"\n";
   $self->mp3_table_header;
+}
+
+sub control_buttons {
+  my $self = shift;
+  return (submit('Play Selected'),submit('Shuffle All'),submit('Play All')); 
 }
 
 sub mp3_table_header {
@@ -491,8 +498,7 @@ sub mp3_list_bottom {
   my $self = shift;
   my $mp3s = shift;  #hashref
   print  TR(td(),
-	    td({-align=>'LEFT',-colspan=>4},
-	       submit('Play Selected'),submit('Shuffle All'),submit('Play All'))) 
+	    td({-align=>'LEFT',-colspan=>4},$self->control_buttons))
     if $self->stream_ok;
   print end_table,"\n";
   print end_form;
@@ -678,7 +684,7 @@ sub send_stream {
   $r->print("icy-notice2:Apache::MP3 module<BR>$CRLF");
   $r->print("icy-name:$title$CRLF");
   $r->print("icy-genre:$genre$CRLF");
-  $r->print("icy-url:",$self->stream_base(),$CRLF);  # interferes with nice scrolling display in xmms
+  $r->print("icy-url:",$self->stream_base(1),$CRLF);
   $r->print("icy-pub:1$CRLF");
   $r->print("icy-br:$info->{BITRATE}$CRLF");
   $r->print("$CRLF");
@@ -784,12 +790,13 @@ sub arrow_icon   { shift->get_dir('ArrowIcon',ARROWICON)        }
 sub help_url     { shift->get_dir('HelpURL',HELPURL)  }
 sub stream_base {
   my $self = shift;
+  my $suppress_auth = shift;
   my $r = $self->r;
   my $basename = $r->dir_config('StreamBase');
   return $basename if $basename;
   my $auth_info;
   my ($res,$pw) = $r->get_basic_auth_pw;
-  if ($res == 0) { # authentication in use
+  if ($res == 0 and !$suppress_auth) { # authentication in use
     my $user = $r->connection->user;
     $auth_info = "$user:$pw\@";
   }
@@ -832,7 +839,13 @@ Apache::MP3 - Generate streamable directories of MP3 files
   # Or use the Apache::MP3::Sorted subclass to get sortable directory listings
  <Location /songs>
    SetHandler perl-script
-  PerlHandler Apache::MP3::Sorted
+   PerlHandler Apache::MP3::Sorted
+ </Location>
+
+  # Or use the Apache::MP3::Playlist subclass to get persistent playlists
+ <Location /songs>
+   SetHandler perl-script
+  PerlHandler Apache::MP3::Playlist
  </Location>
 
 A B<demo version> can be browsed at http://www.modperl.com/Songs/.
@@ -844,7 +857,7 @@ containing MP3 files, sort them on various fields, download them,
 stream them to an MP3 decoder like WinAmp, and construct playlists.
 The display is configurable and subclassable.
 
-ppNOTE: This version of Apache::MP3 is substantially different from
+NOTE: This version of Apache::MP3 is substantially different from
 the pre-2.0 version described in The Perl Journal.  Specifically, the
 format to use for HREF links has changed.  See I<Linking> for details.
 
@@ -878,7 +891,8 @@ You may change the location of this directory by setting the
 I<BaseDir> configuration variable.  See the I<Customizing> section for
 more details.
 
-=item 4. Set Apache::MP3 or Apache::MP3::Sorted as handler for MP3 directory
+=item 4. Set Apache::MP3 (or one of its subclasses) to be handler for
+MP3 directory
 
 In httpd.conf or access.conf, create a E<lt>LocationE<gt> or
 E<lt>DirectoryE<gt> section, and make Apache::MP3 the handler for this
@@ -892,7 +906,8 @@ directory where you will be storing song files:
 
 If you would prefer an MP3 file listing that allows the user to sort
 it in various ways, set the handler to use the Apache::MP3::Sorted
-subclass instead.  This is recommended
+subclass instead.  A further elaboration is Apache::MP3::Playlist,
+which uses cookies to manage a persistent playlist for the user.
 
 =item 5. Load MP3::Info in the Perl Startup file (optional)
 
@@ -1525,6 +1540,10 @@ listing. C<$mp3s> is a hashref containing information about each file.
 This routine sorts the MP3 files contained in C<$mp3s> and invokes
 format_song() to format it for the table.
 
+=item @buttons = $mp3->control_buttons
+
+Return the list of buttons printed at the bottom of the MP3 file listing.
+
 =item $arrayref = $mp3->format_song($song,$info,$count)
 
 This method is called with three arguments.  C<$song> is the path to
@@ -1724,7 +1743,7 @@ bit lower using some stylesheet magic.  Can anyone help?
 
 =head1 SEE ALSO
 
-L<Apache::MP3::Sorted>, L<MP3::Info>, L<Apache>
+L<Apache::MP3::Sorted>, L<Apache::MP3::Playlist>, L<MP3::Info>, L<Apache>
 
 =head1 AUTHOR
 
