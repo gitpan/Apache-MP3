@@ -11,7 +11,7 @@ use vars '$VERSION','@ISA';
 # @ISA = 'Apache';
 my $CRLF = "\015\012";
 
-$VERSION = '2.05';
+$VERSION = '2.06';
 
 # defaults:
 use constant BASE_DIR     => '/apache_mp3';
@@ -183,7 +183,7 @@ sub find_mp3s {
 
   my $uris = $self->_find_mp3s($dir,$recurse);
   foreach (@$uris) {
-    s!^$dir/!!;
+    substr($_,0,length($dir)) = '' if index($_,$dir) == 0; # strip directory part
     $_ = "$uri/$_";
   }
   return $uris;
