@@ -1,5 +1,5 @@
 package Apache::MP3::Sorted;
-# $Id: Sorted.pm,v 1.1.1.1 2002/01/24 22:31:59 lstein Exp $
+# $Id: Sorted.pm,v 1.2 2002/08/16 04:14:57 lstein Exp $
 # example of how to subclass Apache::MP3 in order to provide
 # control over the sorting of the rows of the MP3 table
 
@@ -98,11 +98,15 @@ sub mp3_table_header {
 
   foreach ($self->fields) {
     my $sort = param('sort') eq lc($_)  ? lc("-$_") : lc($_);
-    push @fields,a({-href=>"?sort=$sort"},ucfirst($_));
+    push @fields,a({-href=>"?sort=$sort"},
+      $self->x(ucfirst($_))
+    );
   }
 
-  print TR({-class=>'title',-align=>'LEFT'},
-	   th({-colspan=>2,-align=>'CENTER'},p($self->stream_ok ? 'Select' : '')),
+  print TR({-class=>'title',$self->aleft},
+	   th({-colspan=>2,-align=>'CENTER'},p($self->stream_ok ?
+	     $self->x('Select') : ''
+	   )),
 	   th(\@fields)),"\n";
 }
 

@@ -12,5 +12,6 @@ WriteMakefile(
 			    Apache     => 1.14,
 			    Audio::Wav => 0.02,
 			    Ogg::Vorbis =>0.02,
+			    Locale::Maketext => 1.03,
 			   }, # e.g., Module::Name => 1.1
 );

@@ -1,5 +1,5 @@
 package Apache::MP3::Playlist;
-# $Id: Playlist.pm,v 1.2 2002/01/27 15:40:23 lstein Exp $
+# $Id: Playlist.pm,v 1.3 2002/08/16 04:14:57 lstein Exp $
 # generates playlists in cookies
 
 use strict;
@@ -11,8 +11,8 @@ use CGI::Cookie;
 use Apache::MP3::Sorted;
 
 @ISA = 'Apache::MP3::Sorted';
-$VERSION = 1.03;
-# $Id: Playlist.pm,v 1.2 2002/01/27 15:40:23 lstein Exp $
+$VERSION = 1.04;
+# $Id: Playlist.pm,v 1.3 2002/08/16 04:14:57 lstein Exp $
 
 #sub handler {
 #  __PACKAGE__->handle_request(@_);
@@ -67,7 +67,6 @@ sub process_playlist {
 
   if (param('Play Selected') and param('playlist')) {
     my @uris = param('file') or return HTTP_NO_CONTENT;
-    warn "uris = ",join "\n",@uris;
     return $self->send_playlist(\@uris);
   }
 
@@ -87,7 +86,8 @@ sub process_playlist {
     tied(%{$r->err_headers_out})->add('Set-Cookie' => $c);
     (my $uri = $r->uri) =~ s!playlist\.m3u$!!;
     $self->path_escape(\$uri);
-    $r->header_out(Location => $uri);
+    my $rand = int rand(100000);
+    $r->header_out(Location => "$uri?$rand");
     return REDIRECT;
   }
 
@@ -136,11 +136,22 @@ sub control_buttons {
 	  $self->{possibly_truncated}
 	  ? ()
 	  : (submit({-class=>'playlist',
-		     -name=>'Add to Playlist'}), 
+		     -name=>'Add to Playlist',
+		     -value=>$self->x('Add to Playlist')}),
 	     submit({-class=>'playlist',
-		     -name=>'Add All to Playlist'})
+		     -name=>'Add All to Playlist',
+		     -value=>$self->x('Add All to Playlist')
+		    })
 	    ),
-	  submit('Play Selected'),  submit('Shuffle All'),  submit('Play All')); 
+	  submit(-name=>'Play Selected',
+		 -value=>$self->x('Play Selected')
+		),
+	  submit(-name=>'Shuffle All',
+		 -value=>$self->x('Shuffle All')
+		),
+	  submit(-name=>'Play All',
+		-value=>$self->x('Play All'))
+	 );
 }
 
 sub lookup_descriptions {
@@ -313,6 +324,8 @@ Example:
       file=/Songs/Madonna/working_girl.mp3;
       file=/Songs/Beatles/let_it_be.mp3">
  Madonna and John, together again for the first time</a>
+
+=back
 
 =head1 BUGS
 

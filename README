@@ -25,8 +25,9 @@ INSTALLATION
 
 1. Prequisites
 
-This module requires mod_perl and MP3::Info, both of which are
-available on CPAN.
+This module requires mod_perl, MP3::Info and Locale::Maketext, all of
+which are available on CPAN.  Locale::Maketext in turn requires
+I18N::LangTags.
 
 2. Configure MIME types
 

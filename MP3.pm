@@ -1,8 +1,9 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.12 2002/05/31 01:09:41 lstein Exp $
+# $Id: MP3.pm,v 1.13 2002/08/16 04:14:57 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE HTTP_NOT_MODIFIED);
+use Apache::MP3::L10N;
 use IO::File;
 use Socket 'sockaddr_in';
 use CGI qw/:standard escape *table *TR *blockquote *center *h1/;
@@ -10,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.26';
+$VERSION = '3.00';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -27,10 +28,9 @@ use constant COVERIMAGESMALL   => 'cover_small.jpg';
 use constant PLAYLISTIMAGE=> 'playlist.jpg';
 use constant SONGICON     => 'sound.gif';
 use constant ARROWICON    => 'right_arrow.gif';
-use constant MISSINGCOMMENT => 'unknown';
 use constant SUBDIRCOLUMNS => 3;
 use constant PLAYLISTCOLUMNS => 3;
-use constant HELPURL      => 'apache_mp3_help.gif:614x498';
+use constant HELPIMGURL   => 'apache_mp3_fig1.gif:374x292';
 my %FORMAT_FIELDS = (
 		     a => 'artist',
 		     c => 'comment',
@@ -59,6 +59,8 @@ my %supported_types = (
 my $NO  = '^(no|false)$';  # regular expression
 my $YES = '^(yes|true)$';  # regular expression
 
+
+
 sub handler ($$) {
   my $class = shift;
   my $obj = $class->new(@_) or die "Can't create object: $!";
@@ -67,20 +69,109 @@ sub handler ($$) {
 
 sub new {
   my $class = shift;
-  unshift @_,'r' if @_ == 1;
-  return bless { @_ },$class;
+  my $r = shift if @_ == 1;
+  my $new = bless {@_}, ref($class) || $class;
+  $new->{'r'} ||= $r if $r;
+
+  my @lang_tags;
+  push @lang_tags,split /,\s+/,$r->header_in('Accept-language') 
+    if $r->header_in('Accept-language');
+  push @lang_tags,$r->dir_config('DefaultLanguage') || 'en-US';
+
+  $new->{'lh'} ||=
+    Apache::MP3::L10N->get_handle(@lang_tags)
+	|| die "No language handle?";  # shouldn't ever happen!
+  return $new;
 }
 
+sub x {  # maketext plus maybe escape.  The "x" for "xlate"
+   my $x = (my $lh = shift->{'lh'})->maketext(@_);
+   $x =~ s/([^\x00-\x7f])/'&#'.ord($1).';'/eg
+     if $x =~ m/[^\x00-\x7f]/ and $lh->must_escape;
+   return $x;
+ }
+
+sub lh { return shift->{lh} }  # language handle
+ 
+sub aright { -align => shift->{lh}->right }
+# align "right" (or, in case of Arabic (etc), really left).
+
+sub aleft  { -align => shift->{lh}->left  }
+# align "light" (or, in case of Arabic (etc), really right).
+
 sub r { return shift->{r} }
+
+sub html_content_type {
+  my $self = shift;
+  return 'text/html; charset=' . $self->lh->encoding
+}
+
+sub help_screen {
+  my $self = shift;
+
+  $self->r->send_http_header( $self->html_content_type );
+  return OK if $self->r->header_only;
+
+  print start_html(
+		   -lang => $self->lh->language_tag,
+		   -title => $self->x('Quick Help Summary'),
+		   -dir => $self->lh->direction,
+		   -head => meta({-http_equiv => 'Content-Type',
+				  -content    => 'text/html; charset='
+				  . $self->html_content_type
+				 }),
+		  );
+
+  my $help_img_url = $self->help_img_url;  # URL for the image
+  my ($url,$width,$height) = $help_img_url=~/(.+):(\d+)x(\d+)/;
+  $url    ||= $help_img_url;
+  $width  ||= 500;
+  $height ||= 400;
+
+  print img({-src     => $url,
+	     -alt     => "",
+	     -height  => $height,
+	     -width   => $width,
+	     $self->aleft,
+            }), "\n";
+  print join "\n".br(),
+    $self->help_figure_list
+      ;
+  print "\n", end_html();
+  return;
+}
+
+sub help_figure_list {
+  my $self = shift;
+  # Provide a legend for the items in the figure
+  return(
+	 b("A"). $self->x("= Stream all songs"),
+	 b("B"). $self->x("= Shuffle-play all Songs"),
+	 b("C"). $self->x("= Stream all songs"),
+	 b("D"). $self->x("= Go to earlier directory"),
+	 b("E"). $self->x("= Stream contents"),
+	 b("F"). $self->x("= Enter directory"),
+	 b("G"). $self->x("= Stream this song"),
+	 b("H"). $self->x("= Select for streaming"),
+	 b("I"). $self->x("= Download this song"),
+	 b("J"). $self->x("= Stream this song"),
+	 b("K"). $self->x("= Sort by field"),
+	);
+}
 
 sub run {
   my $self = shift;
   my $r = $self->r;
 
+  local $CGI::XHTML = 0;
+
   # check that we aren't running under PerlSetupEnv Off
   if ($ENV{MOD_PERL} && !$ENV{SCRIPT_FILENAME}) {
      warn "CGI.pm cannot run with 'PerlSetupEnv Off', please set it to On";
   }
+
+  # this is called to show a help screen
+  return $self->help_screen if param('help_screen');
 
   # generate directory listing
   return $self->process_directory($r->filename) 
@@ -121,7 +212,7 @@ sub run {
     $basename = quotemeta($basename);
     my @matches;
     if (-e $self->r->filename) {
-      # if the actual .m3u file exists (its a playlist) then we read it
+      # If the actual .m3u file exists (it's a playlist), then we read it
       # to get the list of files to send
       @matches = $self->load_playlist($self->r->filename);
     } else {
@@ -378,15 +469,29 @@ sub list_directory {
   return DECLINED unless my ($directories,$mp3s,$playlists) 
     = $self->read_directory($dir);
 
-  $self->r->send_http_header('text/html');
+  $self->r->send_http_header( $self->html_content_type );
   return OK if $self->r->header_only;
 
   $self->page_top($dir);
   $self->directory_top($dir);
-  $self->list_subdirs($directories) if @$directories;
-  $self->list_playlists($playlists) if @$playlists;
-  $self->list_mp3s($mp3s)           if %$mp3s;
+  print "\n<!-- begin main -->\n";
+  if(@$directories) {
+    print "\n<!-- begin subdirs -->\n";
+    $self->list_subdirs($directories);
+    print "\n<!-- end subdirs -->\n";
+  }
+  if(@$playlists) {
+    print "\n<!-- begin playlists -->\n";
+    $self->list_playlists($playlists);
+    print "\n<!-- end playlists -->\n";
+  }
+  if(%$mp3s) {
+    print "\n<!-- begin mp3s -->\n";
+    $self->list_mp3s($mp3s);
+    print "\n<!-- end mp3s -->\n";
+  }
   print hr                         unless %$mp3s;
+  print "\n<!-- end main -->\n";
   $self->directory_bottom($dir);
   return OK;
 }
@@ -396,9 +501,16 @@ sub page_top {
   my $self = shift;
   my $dir  = shift;
   my $title = $self->r->uri;
-  print start_html(-title => $title,
-		   -style => {-src=>$self->stylesheet});
-
+  print start_html(
+    -title => $title,
+    -head => meta({-http_equiv => 'Content-Type',
+                   -content    => 'text/html; charset='
+                                  . $self->html_content_type
+                  }),
+    -lang  => $self->lh->language_tag,
+    -dir => $self->lh->direction,
+    -style => {-src=>$self->stylesheet}
+  );
 }
 
 # print the HTML at the top of a directory listing
@@ -414,17 +526,30 @@ sub directory_top {
     $links = $self->generate_navpath_arrows($title);
   }
   print a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-	  img({-src => $self->cd_icon($dir), -align=>'LEFT',-alt=> 'Play All',-border=>0})),
+	  img({-src => $self->cd_icon($dir), $self->aleft, -alt=>
+	      $self->x('Stream All'),
+	      -border=>0})),
 	    $links,
 	a({-href=>'./playlist.m3u?Shuffle+All+Recursive=1'},
-	  font({-class=>'directory'},'[Shuffle All]'))
-	  .'&nbsp;'.
-	    a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-	    font({-class=>'directory'},'[Stream All]')),
-	      br({-clear=>'ALL'}),;
+	  font({-class=>'directory'}, '[',
+	    $self->x('Shuffle All'),
+	    ']'
+	 ))
+	.'&nbsp;'.
+	a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
+	  font({-class=>'directory'}, '[',
+	    $self->x('Stream All'),
+	    ']'
+	)),
+	br({-clear=>'ALL'}),;
 
   if (my $t = $self->stream_timeout) {
-    print p(strong('Note:'),"In this demo, streaming is limited to approximately $t seconds.\n");
+    print p(strong(
+        $self->x('Note:')
+      ),' ',
+      $self->x("In this demo, streaming is limited to approximately [_1,second].", $t),
+      "\n"
+    );
   }
 }
 
@@ -483,22 +608,38 @@ sub directory_bottom {
   print 
     table({-width=>'100%',-border=>0},
 	  TR(
-	     td({-align=>'LEFT'},
-		address('Apache::MP3 was written by',		
-			a({-href=>'http://stein.cshl.org'},'Lincoln D. Stein'))
+	     td({$self->aleft},
+		#address(  # Unpredictable and/or flaky rendering
+		        $self  ->x( "_CREDITS_before_author" )
+		        .
+			a({-href=>'http://stein.cshl.org'},
+			  $self->x( "_CREDITS_author" )
+			)
+			.
+		        $self  ->x( "_CREDITS_after_author" )
+		#)
 		),
-	     td({-align=>'RIGHT'},$self->get_help))
+	     td({$self->aright},$self->get_help))
 	     );
-  print end_html;
+  print "<!-- ",
+    sprintf("\n %s v%s", __PACKAGE__, $VERSION || '0'),
+    (ref($self) eq __PACKAGE__) ? () :
+    sprintf("\n %s v%s", ref($self), $self->VERSION || '0'),
+    "\n ", $self->x('_VERSION'), " (", ref($self->lh), ")",
+    "\n -->",
+  ;
+  print end_html();
 }
-
 
 # print the HTML at the top of the list of subdirs
 sub subdir_list_top {
   my $self   = shift;
   my $subdirs = shift;  # array reference
-  print hr;
-  print h2({-class=>'CDdirectories'}, sprintf('CD Directories (%d)',scalar @$subdirs));
+  print "\n", hr;
+  print "\n\n", h2({-class=>'CDdirectories'},
+    $self->x('CD Directories ([_1])',
+             scalar @$subdirs),
+  ), "\n";
 }
 
 # print the HTML at the bottom of the list of subdirs
@@ -549,16 +690,23 @@ sub format_subdir {
 		   img({-src=>$self->cd_list_icon($subdir),
 			-align=>'ABSMIDDLE',
 			-class=>'subdir',
-			-alt=>'Play Contents',
+			-alt=>
+			  $self->x('Stream'),
 			-border=>0}))
 		 .$nb.
 			  a({-href=>escape($subdir).'/'},font({-class=>'subdirectory'},$title)),
-		 br,
+		 br, "\n",
 		 a({-class=>'subdirbuttons',
-		    -href=>escape($subdir).'/playlist.m3u?Shuffle+All+Recursive=1'},'[Shuffle]')
+		    -href=>escape($subdir).'/playlist.m3u?Shuffle+All+Recursive=1'},
+		    '[' .
+		    $self->x('Shuffle')
+		    .']')
 		 .$nb.
 		 a({-class=>'subdirbuttons',
-		    -href=>escape($subdir).'/playlist.m3u?Play+All+Recursive=1'},'[Stream]'));
+		    -href=>escape($subdir).'/playlist.m3u?Play+All+Recursive=1'},
+		    '['.
+		    $self->x('Stream')
+		    .']'))."\n";
   return $result;
 }
 
@@ -566,8 +714,9 @@ sub playlist_list_top {
   my $self = shift;
   my $playlists = shift; # array ref
   print hr;
-  print h2({-class=>'CDdirectories'}, 
-           sprintf('Playlists (%d)', scalar @$playlists));
+  print "\n\n", h2({-class=>'CDdirectories'}, 
+        $self->x('Playlists ([_1])',
+                 scalar @$playlists));
 }
 
 # print the HTML at the bottom of the list of playlists
@@ -591,7 +740,9 @@ sub playlist_list {
     print start_TR({-valign => 'BOTTOM'});
     for(my $col = 0; $col < $cols; $col++) {
       my $i = $col * $rows + $row;
-      my $contents = $playlists->[$i] ? $self->format_playlist($playlists->[$i]) : '&nbsp;';
+      my $contents = $playlists->[$i]
+        ? $self->format_playlist( $playlists->[$i] )
+        : '&nbsp;';
       print td($contents);
     }
     print end_TR, "\n";
@@ -601,7 +752,7 @@ sub playlist_list {
     end_center;
 }
 
-# format a playlist entry and return it's HTML
+# format a playlist entry and return its HTML
 sub format_playlist {
   my $self = shift;
   my $playlist = shift;
@@ -616,7 +767,8 @@ sub format_playlist {
              img({-src => $self->playlist_icon,
                   -align => 'ABSMIDDLE',
                   -class => 'subdir',
-                  -alt => 'Playlist',
+                  -alt =>
+                     $self->x('Playlist'),
                   -border => 0}))
            . $nb .
            a({-href => $url},
@@ -627,18 +779,7 @@ sub format_playlist {
 # This generates the link for help
 sub get_help {
   my $self = shift;
-  my $help_url = $self->help_url;
-  my ($url,$width,$height) = $help_url=~/(.+):(\d+)x(\d+)/;
-  $url ||= $help_url;
-  $width  ||= 500;
-  $height ||= 400;
-  return
-    a({-href        => $url,
-       -frame       => '_new',
-       -onClick     => qq(window.open('$url','','height=$height,width=$width'); return false),
-       -onMouseOver => "status='Show Help Window';return true",
-      },
-      'Quick Help Summary');
+  return a({-href => "?help_screen=1",}, $self->x('Quick Help Summary'));
 }
 
 # this is called to display the subdirs (subdirectories) within the current directory
@@ -682,31 +823,54 @@ sub mp3_list_top {
   print start_form(-name=>'form',-action=>"${uri}playlist.m3u",-method=>'GET');  
 #  print start_form(-action=>"${uri}playlist.m3u");
 
+  my $count = keys %$mp3s;
   print
-    a({-name=>'cds'}),
+    "\n\n",
+    h2({-class=>'SongList'},
+        a({-name=>'cds'}, 
+          $self->x("Song List ([_1])", $count),
+        ),
+    ),
+    "\n",
     start_table({-border=>0,-cellspacing=>0,-width=>'100%'}),"\n";
 
   print  TR(td(),
-	    td({-align=>'LEFT',-colspan=>4},$self->control_buttons))
+	    td({$self->aleft,-colspan=>4},$self->control_buttons))
     if $self->stream_ok and keys %$mp3s > $self->file_list_is_long;
 
-  my $count = keys %$mp3s;
-  print h2({-class=>'SongList'},"Song List ($count)"),"\n";
   $self->mp3_table_header;
 }
 
 sub control_buttons {
   my $self = shift;
-  return (submit('Play Selected'),submit('Shuffle All'),submit('Play All'));
+  return (
+    sprintf('<input type="submit" name="Play Selected" value="%s" />',
+      $self->x('Play Selected'),
+    ),	
+    sprintf('<input type="submit" name="Shuffle All" value="%s" />',
+      $self->x('Shuffle All'),
+    ),
+    sprintf('<input type="submit" name="Play All" value="%s" />',
+      $self->x('Play All'),
+    ),
+  );
 }
 
 sub mp3_table_header {
   my $self = shift;
   my $url = url(-absolute=>1,-path_info=>1);
 
-  my @fields = map { ucfirst($_) } $self->fields;
-  print TR({-class=>'title',-align=>'LEFT'},
-	   th({-colspan=>2,-align=>'CENTER'},p($self->stream_ok ? 'Select' : '')),
+  my @fields = map {
+      $self->x(ucfirst($_))
+    } $self->fields;
+  
+  print TR({-class=>'title',$self->aleft,},
+	   th({-colspan=>2,-align=>'CENTER'},
+	      p($self->stream_ok ?
+	        $self->x('Select')
+	        : ''
+	       )
+	     ),
 	   th(\@fields)),"\n";
 }
 
@@ -715,7 +879,7 @@ sub mp3_list_bottom {
   my $self = shift;
   my $mp3s = shift;  #hashref
   print  TR(td(),
-	    td({-align=>'LEFT',-colspan=>10},$self->control_buttons))
+	    td({$self->aleft,-colspan=>10},$self->control_buttons))
     if $self->stream_ok;
   print end_table,"\n";
   print end_form;
@@ -732,7 +896,7 @@ sub mp3_list {
   for my $song (@f) {
     my $highlight = $count++ % 2 ? 'highlight' : 'normal';
     my $contents   = $self->format_song($song,$mp3s->{$song},$count);
-    print TR({-class=>$highlight},td($contents));
+    print TR({-class=>$highlight},td($contents)), "\n";
   }
 }
 
@@ -745,8 +909,8 @@ sub format_song {
   return \@contents;
 }
 
-# format the control part of each mp3 in the listing (checkbox, etc)
-# each list item becomes a cell in the table
+# Format the control part of each mp3 in the listing (checkbox, etc).
+# Each list item becomes a cell in the table.
 sub format_song_controls {
   my $self = shift;
   my ($song,$info,$count) = @_;  
@@ -757,17 +921,28 @@ sub format_song_controls {
   
   my $controls = '';
   $controls .= checkbox(-name=>'file',-value=>$song,-label=>'') if $self->stream_ok;
-  $controls  .= a({-href=>$url}, b('&nbsp;[fetch]'))             if $self->download_ok;
-  $controls  .= a({-href=>$play},b('&nbsp;[stream]'))            if $self->stream_ok;
+  $controls  .= a({ -href=>$url, class => 'fetch' }, b('&nbsp;['.
+      $self->x('fetch')
+      .']'
+     ))
+    if $self->download_ok;
+  $controls  .= a({-href=>$play},b('&nbsp;['.   # TODO: make an nbsp joiner?
+      $self->x('stream')
+      .']'
+     ))
+    if $self->stream_ok;
 
   return (
 	  p(
-	    $self->stream_ok ? a({-href=>$play},img({-src=>$self->song_icon,-alt=>'Play Song',-border=>0}))
-	                     : img({-src=>$self->song_icon})
+	    $self->stream_ok ? a({-href=>$play},
+	                         img({-src => $self->song_icon,-alt =>
+	                             $self->x('stream'),
+	                              -border => 0}))
+	                     : img({-src => $self->song_icon})
 	   ),
 	  p(
 	    $controls
-	    )
+	   )
 	 );
 }
 
@@ -775,8 +950,8 @@ sub format_song_controls {
 sub format_song_fields {
   my $self = shift;
   my ($song,$info,$count) = @_;
-  return map { $info->{lc $_}=~/^\d+$/ ? 
-                   p({-align=>'RIGHT'},$info->{lc($_)},'&nbsp') : 
+	  return map { $info->{lc $_}=~/^\d+$/ ? 
+                   p({$self->aright},$info->{lc($_)},'&nbsp;') : 
                    p($info->{lc($_)} || '&nbsp;') } $self->fields;
 }
 
@@ -854,7 +1029,7 @@ sub read_mpeg {
   my $tag  = get_mp3tag($file);
   my ($title,$artist,$album,$year,$comment,$genre,$track) = 
     @{$tag}{qw(TITLE ARTIST ALBUM YEAR COMMENT GENRE TRACKNUM)} if $tag;
-  my $duration = sprintf "%dm %2.2ds", $info->{MM}, $info->{SS};
+  my $duration = sprintf "%d:%2.2d", $info->{MM}, $info->{SS};
   my $seconds  = ($info->{MM} * 60) + $info->{SS};
 
   my $dir = dirname ($file);
@@ -907,7 +1082,7 @@ sub read_vorbis {
   %$data = (
 	    title => $comments->{title}     || $comments->{TITLE}   || '',
 	    artist => $comments->{artist}   || $comments->{ARTIST}  || '',
-	    duration => sprintf("%dm %2.2ds", int($sec/60), $sec%60),
+	    duration => sprintf("%d:%2.2d", int($sec/60), $sec%60),
 	    genre => $comments->{genre}     || $comments->{GENRE}   || '',
 	    album => $comments->{album}     || $comments->{ALBUM}   || '',
 	    comment => $comments->{comment} || $comments->{COMMENT} || '',
@@ -943,7 +1118,7 @@ sub read_wav {
 	    seconds     => $sec,
 	    bitrate     => int($details->{bytes_sec}*8/1024),
 	    samplerate  => $details->{sample_rate},
-	    duration    => sprintf("%dm %2.2ds", int $sec/60,$sec%60),
+	    duration    => sprintf("%d:%2.2d", int $sec/60,$sec%60),
 	   )
 }
 
@@ -1020,7 +1195,7 @@ sub send_stream {
     $size = int($size * ($bitrate / $info->{bitrate}));
   }
   my $description = $info->{description};
-  my $genre       = $info->{genre} || MISSINGCOMMENT;
+  my $genre       = $info->{genre} || $self->lh->maketext('unknown');
 
   my $range = 0;
   $r->header_in("Range")
@@ -1146,7 +1321,8 @@ sub file_list_is_long { shift->r->dir_config('LongList') || 10 }
 
 sub home_label {
   my $self = shift;
-  my $home = $self->r->dir_config('HomeLabel') || 'Home';
+  my $home = $self->r->dir_config('HomeLabel') ||
+    $self->x('Home');
   return lc($home) eq 'hostname' ? $self->r->hostname : $home;
 }
 
@@ -1189,7 +1365,11 @@ warn $directory_specific_icon;
 }
 sub song_icon     { shift->get_dir('SongIcon',SONGICON)          }
 sub arrow_icon    { shift->get_dir('ArrowIcon',ARROWICON)        }
-sub help_url      { shift->get_dir('HelpURL',HELPURL)  }
+
+sub help_url      { shift->get_dir('HelpURL',   HELPIMGURL)  }
+sub help_img_url  { shift->get_dir('HelpImgURL',HELPIMGURL)  }
+
+
 sub cd_icon {
   my $self = shift;
   my $dir = shift;
@@ -1204,7 +1384,7 @@ sub missing_comment {
   my $self = shift;
   my $missing = $self->r->dir_config('MissingComment');
   return if $missing eq 'off';
-  $missing = MISSINGCOMMENT unless $missing;
+  $missing = $self->lh->maketext('unknown') unless $missing;
   $missing;
 }
 
@@ -1248,8 +1428,11 @@ sub stream_base {
     return $basename;
   }
 
-  my $vhost = $r->hostname || $r->server->server_hostname;
-  $vhost .= ':' . $r->get_server_port unless $r->get_server_port == 80;
+  my $vhost = $r->hostname;
+  unless ($vhost) {
+    $vhost = $r->server->server_hostname;
+    $vhost .= ':' . $r->get_server_port unless $r->get_server_port == 80;
+  }
   return "http://${auth_info}${vhost}";
 }
 
@@ -1547,7 +1730,7 @@ Table 1: Configuration Variables
  DIRECTORY OPTIONS
  BaseDir	       URL		/apache_mp3
  CacheDir              path             -none-
- HelpURL               URL              apache_mp3_help.gif:614x498
+ HelpImgURL            URL              apache_mp3_fig1.gif:374x292
  StreamBase            URL              -none-
  LocalNet              subnet           -none-
 
@@ -1560,14 +1743,15 @@ Table 1: Configuration Variables
  DirectoryIcon	       URL		cd_icon_small.gif
  PlaylistIcon          URL              playlist.gif
  Fields                list             title,artist,duration,bitrate
- HomeLabel	       string		"Home"
+ HomeLabel	       string		"Home" (or translation)
  LongList	       integer		10
- MissingComment        string           "unknown"
+ MissingComment        string           "unknown" (or translation)
  PathStyle             Staircase|Arrows Staircase
  SongIcon	       URL		sound.gif
  SubdirColumns	       integer		3
  Stylesheet	       URL		apache_mp3.css
  TitleIcon	       URL		cd_icon.gif
+ DefaultLanguage       languagetag      en-US
 
 =head2 General Configuration Variables
 
@@ -1650,12 +1834,12 @@ system and be writable by Apache.  If not specified, Apache::MP3 will
 not cache the file information, resulting in slower performance on
 large directories.
 
-=item HelpURL I<URL:widthxheight>
+=item HelpImgURL I<URL:widthxheight>
 
-The URL of the page to display when the user presses the "Quick Help
-Summary" link at the bottom of the page.  In the current
-implementation, the module pops up a plain window containing a
-marked-up GIF of a typical page. You can control the size of this page
+The URL of the image that's inlined on the page that appears
+when the user presses the "Quick Help
+Summary" link at the bottom of the page.  You can declare the
+size of this image
 by adding ":WxH" to the end of the URL, where W and H are the width
 and height, respectively.
 
@@ -1754,7 +1938,7 @@ Table 2: I<DescriptionFormat> Field Codes
 
   %a	       Artist name
   %c	       Comment
-  %d	       Duration, in format 00m00s
+  %d	       Duration, in format 00:00 (like 15:20 for 15 mins 20 sec)
   %f	       Name of physical file (minus path)
   %g	       Genre
   %l	       Album name
@@ -1838,11 +2022,12 @@ the top as well as at the bottom of the table.  Defaults to 10.
 
 =item MissingComment I<string>
 
-This is the text string to use when an MP3 or Vorbis comment is missing,
-"unknown" by default.  For example, if the module is configured to
-display the artist name, but a music file is missing this field,
-"unknown" will be printed instead.  To turn this feature off, use an
-argument of "off".  Missing fields will now be blank.
+This is the text string to use when an MP3 or Vorbis comment is missing;
+it is "unknown" (or its translation) by default. For example, if the
+module is configured to display the artist name, but a music file is
+missing this field, "unknown" (or its translation) will be printed
+instead. To turn this feature off, use an argument of "off"; missing
+fields will then be blank.
 
   PerlSetVar MissingComment off
 
@@ -1865,8 +2050,6 @@ list, "sound.gif" by default.
 The number of columns in which to display subdirectories (the small
 "CD icons").  Default 3.
 
-=item 
-
 =item PlaylistColumns I<integer>
 
 The number of columns in which to display playlists. Default 3.
@@ -1884,6 +2067,14 @@ Set the icon displayed next to the current directory's name in the
 absence of a coverimage, "cd_icon.gif" by default.  In this, and the
 other icon-related directives, relative URLs are treated as relative
 to I<BaseDir>.
+
+=item DefaultLanguage I<languagetag>
+
+This determines what language the interface should try appearing in,
+if none of the languages from the browser's Accept-Language header
+can be supported.  For information on language tags, see
+L<I18N::LangTags::List>.  Example value: "zh-cn" for
+PRC-style Chinese.
 
 =back
 
@@ -2500,7 +2691,8 @@ bit lower using some stylesheet magic.  Can anyone help?
 
 =head1 SEE ALSO
 
-L<Apache::MP3::Sorted>, L<Apache::MP3::Playlist>, L<MP3::Info>, L<Apache>
+L<Apache::MP3::Sorted>, L<Apache::MP3::Playlist>, L<MP3::Info>, L<Apache>,
+L<Apache::MP3::L10N>
 
 =head1 ACKNOWLEDGEMENTS
 
@@ -2509,6 +2701,12 @@ that playlists were sorted.
 
 Chris Nandor identified various bugs in the module and provided
 patches.
+
+Sean M. Burke (E<lt>sburkeE<64>cpan.orgE<gt>)
+internationalized this module and coordinated the
+translators/localizers.  Each translator/localizer/consultant is
+thanked in the respective
+C<Apache/MP3/L10N/I<langname>.pm> file.
 
 =head1 AUTHOR
 
@@ -2519,3 +2717,4 @@ free to use, modify and redistribute it as long as you retain the
 correct attribution.
 
 =cut
+

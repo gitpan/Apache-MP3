@@ -1,3 +1,7 @@
+3.00 Fri Aug 16 00:12:33 EDT 2002
+	- Extensive contribution from Sean Burke to provide localization and
+		internationalization.
+
 2.26 Wed Apr 17 11:03:24 EDT 2002
 	- Added patch from Tom Hughes to correctly escape paths in the playlist.
 	- Added patch from Tom Hughes to fetch the average bitrate for VBR Ogg
