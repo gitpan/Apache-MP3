@@ -1,5 +1,5 @@
 package Apache::MP3::Playlist;
-# $Id: Playlist.pm,v 1.3 2002/08/16 04:14:57 lstein Exp $
+# $Id: Playlist.pm,v 1.4 2002/08/26 18:52:29 lstein Exp $
 # generates playlists in cookies
 
 use strict;
@@ -12,7 +12,7 @@ use Apache::MP3::Sorted;
 
 @ISA = 'Apache::MP3::Sorted';
 $VERSION = 1.04;
-# $Id: Playlist.pm,v 1.3 2002/08/16 04:14:57 lstein Exp $
+# $Id: Playlist.pm,v 1.4 2002/08/26 18:52:29 lstein Exp $
 
 #sub handler {
 #  __PACKAGE__->handle_request(@_);
@@ -33,8 +33,8 @@ sub process_playlist {
   if (my $cookies = CGI::Cookie->parse($r->header_in('Cookie'))) {
     my $playlist = $cookies->{playlist};
     @playlist = $playlist->value if $playlist;
-    if ($playlist[-1] && 
-	$r->lookup_uri($playlist[-1])->content_type ne 'audio/mpeg') {
+    if ($playlist[-1] &&
+	not $self->supported_type ($r->lookup_uri($playlist[-1])->content_type)) {
       $self->{possibly_truncated}++;
       pop @playlist;  # get rid of the last
     }

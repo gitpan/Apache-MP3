@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.14 2002/08/18 17:33:49 lstein Exp $
+# $Id: MP3.pm,v 1.18 2002/10/14 03:21:35 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE HTTP_NOT_MODIFIED);
@@ -11,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '3.01';
+$VERSION = '3.03';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -48,18 +48,9 @@ my %FORMAT_FIELDS = (
 		     y => 'year',
 		     );
 
-my @suffix      = qw(.ogg .OGG .wav .WAV .mp3 .MP3 .mpeg .MPEG);
-my %supported_types = (
-		       # type                 condition                     handler method
-		       'audio/mpeg'        => eval "use MP3::Info; 1;"   && 'read_mpeg',
-		       'application/x-ogg' => eval "use Ogg::Vorbis; 1;" && 'read_vorbis',
-		       'audio/x-wav'       => eval "use Audio::Wav; 1;"  && 'read_wav',
-		      );
 
 my $NO  = '^(no|false)$';  # regular expression
 my $YES = '^(yes|true)$';  # regular expression
-
-
 
 sub handler ($$) {
   my $class = shift;
@@ -81,6 +72,17 @@ sub new {
   $new->{'lh'} ||=
     Apache::MP3::L10N->get_handle(@lang_tags)
 	|| die "No language handle?";  # shouldn't ever happen!
+
+  $new->{'supported_types'} =
+    {
+     # type                 condition                     handler method
+     'audio/mpeg'        => eval "use MP3::Info; 1;"   && 'read_mpeg',
+     'application/x-ogg' => eval "use Ogg::Vorbis; 1;" && 'read_vorbis',
+     'audio/x-wav'       => eval "use Audio::Wav; 1;"  && 'read_wav'
+    };
+
+  $new->{'suffixes'} = [ qw(.ogg .OGG .wav .WAV .mp3 .MP3 .mpeg .MPEG)];
+
   return $new;
 }
 
@@ -219,14 +221,12 @@ sub run {
       # find the MP3 file that corresponds to basename.m3u
       @matches = grep { m!/$basename[^/]*$! } @{$self->find_mp3s};
     }
-
-    if ($r->request($r->uri)->content_type eq 'audio/playlist'){
-      $self->send_playlist(\@matches);
-    }
-    elsif($r->request($r->uri)->content_type eq 'audio/x-scpls'){
+    if($r->request($r->uri)->content_type eq 'audio/x-scpls'){
       open(FILE,$r->filename) || return 404;
       $r->send_fd(\*FILE);
       close(FILE);
+    } else {
+      $self->send_playlist(\@matches);
     }
 
     return OK;
@@ -268,8 +268,7 @@ sub download_file {
   my $file = shift;
   my $type = $self->r->content_type;
 
-  my $is_audio =  $self->r->content_type eq 'audio/mpeg' 
-               || $self->r->content_type eq 'application/x-ogg';
+  my $is_audio = $self->supported_type ($self->r->content_type);
 
   if ($is_audio && !$self->download_ok) {
     $self->r->log_reason('File downloading is forbidden');
@@ -466,7 +465,7 @@ sub list_directory {
     }
   }
 
-  return DECLINED unless my ($directories,$mp3s,$playlists) 
+  return DECLINED unless my ($directories,$mp3s,$playlists,$txtfiles)
     = $self->read_directory($dir);
 
   $self->r->send_http_header( $self->html_content_type );
@@ -479,6 +478,11 @@ sub list_directory {
     print "\n<!-- begin subdirs -->\n";
     $self->list_subdirs($directories);
     print "\n<!-- end subdirs -->\n";
+  }
+  if(@$txtfiles) {
+    print "\n<!-- begin txtfiles -->\n";
+    $self->list_txtfiles($txtfiles);
+    print "\n<!-- end txtfiles -->\n";
   }
   if(@$playlists) {
     print "\n<!-- begin playlists -->\n";
@@ -782,6 +786,60 @@ sub get_help {
   return a({-href => "?help_screen=1",}, $self->x('Quick Help Summary'));
 }
 
+sub txtfile_list_top {
+  my $self = shift;
+  my $txtfiles = shift; # array ref
+  print hr;
+  print h2({-class=>'CDdirectories'}, 
+           sprintf('Text Files (%d)', scalar @$txtfiles));
+}
+
+# print the HTML to format the list of playlists
+sub txtfile_list {
+  my $self = shift;
+  my $txtfiles = shift; # array ref
+
+  my $cols = $self->playlist_columns;
+  my $rows = int(0.99 + @$txtfiles / $cols);
+
+  print start_center,
+    start_table({-border => 0, -width => '95%'}), "\n";
+
+  for(my $row = 0; $row < $rows; $row++) {
+    print start_TR({-valign => 'BOTTOM'});
+    for(my $col = 0; $col < $cols; $col++) {
+      my $i = $col * $rows + $row;
+      my $contents = $txtfiles->[$i] ? $self->format_txtfile($txtfiles->[$i]) : '&nbsp;';
+      print td($contents);
+    }
+    print end_TR, "\n";
+  }
+
+  print end_table,
+    end_center;
+}
+
+# format a txtfile entry and return it's HTML
+sub format_txtfile {
+  my $self = shift;
+  my $txtfile = shift;
+  my $nb = '&nbsp;';
+  (my $title = $txtfile) =~ s/\.(txt|nfo)$//;
+  $title =~ s/\s/$nb/og;
+  my $url = escape($txtfile);
+
+  return p(a({-href => $url},
+             img({-src => "/icons/text.gif", # $self->playlist_icon,
+                  -align => 'ABSMIDDLE',
+                  -class => 'subdir',
+                  -alt => 'Text File',
+                  -border => 0}))
+           . $nb .
+           a({-href => $url},
+             font({-class => 'subdirectory'},
+                  $title)));
+}
+
 # this is called to display the subdirs (subdirectories) within the current directory
 sub list_subdirs {
   my $self   = shift;
@@ -798,6 +856,15 @@ sub list_playlists {
   $self->playlist_list_top($playlists);
   $self->playlist_list($playlists);
   $self->playlist_list_bottom($playlists);
+}
+
+# this is called to display the text files within the current directory
+sub list_txtfiles {
+  my $self = shift;
+  my $txtfiles = shift; # arrayref
+  $self->txtfile_list_top($txtfiles);
+  $self->txtfile_list($txtfiles);
+  $self->playlist_list_bottom($txtfiles);
 }
 
 # this is called to display the MP3 files within the current directory
@@ -960,7 +1027,7 @@ sub read_directory {
   my $self      = shift;
   my $dir       = shift;
 
-  my (@directories,%seen,%mp3s,@playlists);
+  my (@directories,%seen,%mp3s,@playlists,@txtfiles);
 
   opendir D,$dir or return;
   while (defined(my $d = readdir(D))) {
@@ -975,12 +1042,13 @@ sub read_directory {
 
     # .m3u files should be configured as audio/playlist MIME types in your apache .conf file
     push(@playlists,$d) if $mime =~ m!^audio/(playlist|x-mpegurl|mpegurl|x-scpls)$!;
+    push(@txtfiles,$d) if $mime =~ m!^text/plain$!;
 
-    next unless $supported_types{$mime};
+    next unless $self->supported_type ($mime);
     next unless $mp3s{$d} = $self->fetch_info("$dir/$d", $mime);
   }
   closedir D;
-  return \(@directories,%mp3s,@playlists);
+  return \(@directories,%mp3s,@playlists,@txtfiles);
 }
 
 
@@ -988,10 +1056,10 @@ sub read_directory {
 sub fetch_info {
   my $self = shift;
   my ($file,$type) = @_;
-  return unless $supported_types{$type};
+  return unless $self->supported_type ($type);
 
   if (!$self->read_mp3_info) {  # don't read config info
-    my $f = basename($file,@suffix);
+    my $f = basename($file,$self->suffixes());
     return {
 	    filename    => $f,
 	    description => $f,
@@ -1001,11 +1069,11 @@ sub fetch_info {
   my %data = $self->read_cache($file);
 
   unless (%data and keys(%data) == keys(%FORMAT_FIELDS)) {
-    my $handler = $supported_types{$type};
+    my $handler = $self->supported_type ($type);
     $self->$handler($file,\%data);
     # fill in missing fields
     $data{filename} ||= basename($file);
-    $data{title}    ||= basename($file,@suffix);
+    $data{title}    ||= basename($file,$self->suffixes());
     $self->write_cache($file => \%data);
   }
 
@@ -1019,7 +1087,8 @@ sub fetch_info {
   return \%data;
 }
 
-# these methods are called to read the MIME types specified in %supported_types
+# these methods are called to read the MIME types specified in
+# $self->{'supported_types'}
 sub read_mpeg {
   my $self = shift;
   my ($file,$data) = @_;
@@ -1121,7 +1190,6 @@ sub read_wav {
 	    duration    => sprintf("%d:%2.2d", int $sec/60,$sec%60),
 	   )
 }
-
 
 # a limited escape of URLs (does not escape directory slashes)
 sub path_escape {
@@ -1351,7 +1419,7 @@ sub cd_list_icon  {
   my $image = $self->r->dir_config('CoverImageSmall') || COVERIMAGESMALL;
   my $directory_specific_icon = $self->r->filename."/$subdir/$image";
   return -e $directory_specific_icon 
-    ? $self->r->uri . sprintf("/%s/%s", escape($subdir), $image)
+    ? join ("/",$self->r->uri,escape($subdir),$image)
     : $self->get_dir('DirectoryIcon',CDLISTICON);
 }
 sub playlist_icon {
@@ -1400,7 +1468,8 @@ sub description {
 	 : $data->{$FORMAT_FIELDS{$1}}
        }gxe;
   } else {
-    $description = $data->{title} || basename($data->{filename},@suffix);
+    $description = $data->{title} || basename($data->{filename},
+					      $self->suffixes());
     $description .= " - $data->{artist}" if $data->{artist};
     $description .= " ($data->{album})"  if $data->{album};
   }
@@ -1472,6 +1541,17 @@ sub is_localnet {
     return 1 if index($remote_ip,$_) == 0;
   }
   return;
+}
+
+sub supported_type {
+   my $self = shift;
+   my $type = shift;
+   return $self->{'supported_types'}->{$type};
+}
+
+sub suffixes {
+   my $self = shift;
+   return @{ $self->{'suffixes'}};
 }
 
 1;
@@ -2707,6 +2787,9 @@ internationalized this module and coordinated the
 translators/localizers.  Each translator/localizer/consultant is
 thanked in the respective
 C<Apache/MP3/L10N/I<langname>.pm> file.
+
+Caleb Epstein E<lt>cae@bklyn.orgE<gt>), for generalizing the
+resampling module.
 
 =head1 AUTHOR
 

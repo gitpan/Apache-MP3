@@ -1,3 +1,9 @@
+3.03 Sun Oct 13 23:21:00 EDT 2002
+	- Added generic filtering code to Apache::Resample contributed by
+	Caleb Epstein.
+	- Fixed bug in the playlist handling code that prevented individual files
+	from streaming when [stream] link pressed.
+
 3.01 Sun Aug 18 13:32:59 EDT 2002
 	-Changed the way that $VERSION is defined in the localization modules
 	in order to live peacefully with CPAN.
