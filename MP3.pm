@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.2 2000/12/31 04:25:42 lstein Exp $
+# $Id: MP3.pm,v 1.3 2001/01/02 03:34:30 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
@@ -11,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.14';
+$VERSION = '2.15';
 
 my $CRLF = "\015\012";
 
@@ -125,7 +125,9 @@ sub run {
     return OK;
   }
 
-  return DECLINED;  # otherwise don't know how to deal with this
+  # otherwise don't know how to deal with this
+  $self->r->log_reason('Invalid parameters -- possible attempt to circumvent checks.');
+  return FORBIDDEN;
 }
 
 # this generates the top-level directory listing
@@ -149,12 +151,15 @@ sub process_directory {
 sub download_file {
   my $self = shift;
   my $file = shift;
-  unless ($self->download_ok) {
+  my $is_mp3 = $self->r->content_type eq 'audio/mpeg';
+
+  if ($is_mp3 && !$self->download_ok) {
     $self->r->log_reason('File downloading is forbidden');
     return FORBIDDEN;
   } else {
     return DECLINED;  # allow Apache to do its standard thing
   }
+
 }
 
 
@@ -1268,11 +1273,14 @@ Table 1: Configuration Variables
 You may wish for users to be able to stream songs but not download
 them to their local disk.  If you set AllowDownload to "no",
 Apache::MP3 will not generate a download link for MP3 files.  It will
-also activate some code that makes it inconvenient (although not
+also activate some code that makes it inconvenient (but not
 impossible) for users to download the MP3s.
 
-The arguments "yes", "no", "true" and "false" are recognized.  The
-default is "yes".
+The module recognizes the arguments "yes", "no", "true" and "false".
+The default is "yes".
+
+Note that this setting only affects MP3 files.  Other files, including
+cover art and playlists, can still be downloaded.
 
 =item AllowStream I<yes|no>
 

@@ -1,4 +1,8 @@
 Revision history for Perl extension Apache::MP3.
+2.15 Mon Jan  1 22:20:24 EST 2001
+	- Fixed security bug which allowed people to bypass the AllowDownload setting.
+	- Made "AllowDownload no" compatible with cover art.
+
 2.14 Sat Dec 30 23:10:32 EST 2000
 	- Fixed documentation to indicate that AddType requires dots before the
 		.mp3 and .MP3 extension names.
