@@ -6,7 +6,7 @@ use MP3::Info;
 use CGI qw/:standard escape *table *TR/;
 use vars '$VERSION';
 
-$VERSION = '2.01';
+$VERSION = '2.02';
 
 # defaults:
 use constant ICON_DIR   => '/apache_mp3';
@@ -344,7 +344,13 @@ directory where you will be storing song files:
     PerlHandler Apache::MP3
   </Location>
 
-=item 5. Set up MP3 directory
+=item 5. Load MP3::Info in the Perl Startup file (optional)
+
+To avoid a mysterious segfault problem, you may need to load the
+MP3::Info module at server startup time.  See B<BUGS> below for
+details.
+
+=item 6. Set up MP3 directory
 
 Create a directory in the web server document tree that will
 contain the MP3 files to be served.  The module recognizes and handles
@@ -538,3 +544,5 @@ Copyright 2000, Lincoln Stein <lstein@cshl.org>.
 This module is distributed under the same terms as Perl itself.  Feel
 free to use, modify and redistribute it as long as you retain the
 correct attribution.
+
+=cut

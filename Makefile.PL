@@ -9,6 +9,6 @@ WriteMakefile(
     VERSION_FROM	=> 'MP3.pm', # finds $VERSION
     PREREQ_PM		=> { 
 			    MP3::Info  => 0.8,
-			    Apache     => 1.20,
+			    Apache     => 1.14,
 			   }, # e.g., Module::Name => 1.1
 );

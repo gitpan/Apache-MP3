@@ -15,5 +15,80 @@ songs to play.
 See the "screenshots" directory for some pictures of Apache::MP3 in
 action.
 
+To install:
+
+1. Prequisites
+
+This module requires mod_perl and MP3::Info, both of which are
+available on CPAN.
+
+2. Build module
+
+   perl Makefile.PL
+   make
+   make install
+
+3. Configure MIME types
+
+Apache must be configured to recognize the mp3 and MP3 extensions as
+MIME type audio/mpeg.  Add the following to httpd.conf or srm.conf:
+
+   AddType audio/mpeg mp3 MP3
+
+4. Install icons and stylesheet
+
+This module uses a set of icons and a cascading stylesheet to generate
+its song listings.  By default, the module expects to find them at the
+url /apache_mp3.  Create a directory named apache_mp3 in your document
+root, and copy into it the contents of the "icons" directory from the
+Apache-MP3 distribution.
+
+The Apache::MP3 manual (pod) page describes how to choose a different
+location for the icons.
+
+5. Set Apache::MP3 as handler for MP3 directory
+
+In httpd.conf or access.conf, create a <Location> or
+<Directory> section, and make Apache::MP3 the handler for this
+directory.  This example assumes you are using the URL /songs as the
+directory where you will be storing song files:
+
+  <Location /songs>
+    SetHandler perl-script
+    PerlHandler Apache::MP3
+  </Location>
+
+6. Add MP3::Info to Perl startup script (optional but probably necessary)
+
+Many people experience segfaults and out of memory errors in the httpd
+children when using this module.  The problem appears to be related to
+the MP3::Info module.  Loading MP3::Info at server startup time using
+the mod_perl perl.startup script seems to make the problem go away.
+This is an excerpt from my perl.startup file:
+ 
+  #!/usr/local/bin/perl
+  ...
+  use Apache::Registry ();
+  use Apache::Constants();
+  use MP3::Info();
+  use CGI();
+  use CGI::Carp ();
+  ...
+
+7. Set up MP3 directory
+
+Create a directory in the web server document tree that will
+contain the MP3 files to be served.  The module recognizes and handles
+subdirectories appropriately.  I suggest organizing directories by
+artist and or CD title.  For directories containing multiple tracks
+from the same CD, proceed each mp3 file with the track number.  This
+will ensure that the directory listing sorts in the right order.
+
+Open up the MP3 URL in your favorite browser.  If things don't seem to
+be working, checking the server error log for informative messages.
+
+Run "perldoc Apache::MP3" for more configuration informatin.
+
+
 Lincoln Stein, <lstein@cshl.org>
-5/27/2000
+5/29/2000

@@ -9,3 +9,7 @@ Revision history for Perl extension Apache::MP3.
 
 2.01 Sat May 27 00:32:18 2000
 	Added information on a workaround for random segfaults related to MP3::Info
+
+2.02 Sun May 28 12:18:37 2000
+	More information on MP3::Info segfaults
+	Added installation directions to README
