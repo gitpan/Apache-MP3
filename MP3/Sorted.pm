@@ -10,7 +10,7 @@ use vars qw(@ISA $VERSION);
 @ISA = 'Apache::MP3';
 
 $VERSION = 1.00;
-# $Id$
+# $Id: Sorted.pm,v 1.2 2000/09/03 18:27:52 lstein Exp $
 
 # to choose the right type of sort for each of the mp3 fields
 my %sort_modes = (

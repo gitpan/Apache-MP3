@@ -80,3 +80,7 @@ ADDRESS {
 .playlist {
   background-color: #FFE89B;
 }
+A.playlist {
+  background-color: transparent;
+  font-style: italic;
+}

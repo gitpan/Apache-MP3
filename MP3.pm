@@ -11,8 +11,8 @@ use vars '$VERSION','@ISA';
 # @ISA = 'Apache';
 my $CRLF = "\015\012";
 
-$VERSION = '2.08';
-# $Id$
+$VERSION = '2.10';
+# $Id: MP3.pm,v 1.9 2000/09/03 18:27:48 lstein Exp $
 
 # defaults:
 use constant BASE_DIR     => '/apache_mp3';
@@ -169,7 +169,7 @@ sub send_playlist {
 
   $self->shuffle($urls) if $shuffle;
   foreach (@$urls) {
-    s!([^a-zA-Z0-9/.-])!uc sprintf("%%%02x",ord($1))!eg ;
+    $self->path_escape(\$_);
     $r->print ("$base$_?stream=1$CRLF");
   }
   return OK;
@@ -630,6 +630,13 @@ sub fetch_info {
   return \%data;
 }
 
+# a limited escape of URLs (does not escape directory slashes)
+sub path_escape {
+  my $self = shift;
+  my $uri = shift;
+  $$uri =~ s!([^a-zA-Z0-9/])!uc sprintf("%%%02x",ord($1))!eg;
+}
+
 # get fields to display in list of MP3 files
 sub fields {
   my $self = shift;
@@ -692,6 +699,7 @@ sub send_stream {
 
   if (my $timeout = $self->stream_timeout) {
     my $seconds  = $info->{seconds};
+    $seconds ||= 60;  # shouldn't happen
     my $fraction = $timeout/$seconds;
     my $bytes    = int($fraction * -s $file);
     while ($bytes > 0) {
@@ -1562,7 +1570,7 @@ one row of the MP3 list.  The control elements are all the doo-dads on
 the left-hand side of the display, including the music icon, the
 checkbox, and the [fetch] and [stream] links.
 
-=item @array = format_song_fields($song,$info,$count)
+=item @array = $mp3->format_song_fields($song,$info,$count)
 
 This method is called with the same arguments as format_song().  It
 returns a list (not an arrayref) containing the rest of a row of the
@@ -1585,6 +1593,14 @@ album and artist merged together; and I<duration>, which contains the
 duration of the song expressed as hours, minutes and seconds.  Other
 fields are taken directly from the MP3 tag, but are downcased (for
 convenience to other routines).
+
+=item Apache::MP3->path_escape($scalarref)
+
+This is a limited form of CGI::escape which does B<not> escape the
+slash symbol ("/").  This allows URIs that correspond to directories
+to be escaped safely.  The escape is done inplace on the passed scalar
+reference.
+
 
 =item @fields = $mp3->fields
 

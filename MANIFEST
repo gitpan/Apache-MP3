@@ -11,6 +11,7 @@ apache_mp3/cd_icon_small.gif
 apache_mp3/right_arrow.gif
 apache_mp3/sound.gif
 MP3/Sorted.pm
+MP3/Playlist.pm
 screenshots/cd_listing.gif
 screenshots/mp3_listing.gif
 screenshots/streaming.gif
