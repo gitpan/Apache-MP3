@@ -1,5 +1,5 @@
 package Apache::MP3::Sorted;
-# $Id: Sorted.pm,v 1.1.1.1 2000/12/30 00:26:13 lstein Exp $
+# $Id: Sorted.pm,v 1.2 2001/05/01 02:31:02 lstein Exp $
 # example of how to subclass Apache::MP3 in order to provide
 # control over the sorting of the rows of the MP3 table
 
@@ -146,6 +146,8 @@ This is a list of the names of the fields to sort by default when the
 MP3 file listing is first displayed, after which the user can change
 the sort field by clicking on the column headers.
 
+=over 4
+
 =item SortFields I<field>
 
 The value of B<SortFields> may contain the names of any of the fields
@@ -190,6 +192,8 @@ The following are valid fields:
     track	 The track number
 
 Field names are case insensitive.
+
+=back
 
 =head1 METHODS
 

@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.3 2001/01/02 03:34:30 lstein Exp $
+# $Id: MP3.pm,v 1.5 2001/05/01 02:31:02 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
@@ -11,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.15';
+$VERSION = '2.16';
 
 my $CRLF = "\015\012";
 
@@ -216,6 +216,7 @@ sub send_playlist {
 
   $self->shuffle($urls) if $shuffle;
   $r->print("#EXTM3U$CRLF");
+  my $stream_parms = $self->stream_parms;
   foreach (@$urls) {
     my $uri = quotemeta(dirname($r->uri));
     my $dir = dirname($r->filename);
@@ -235,10 +236,15 @@ sub send_playlist {
     if ($local) {
       $r->print($file,$CRLF);
     } else {
-      $r->print ("$base$_?stream=1$CRLF");
+      $r->print ("$base$_?$stream_parms$CRLF");
     }
   }
   return OK;
+}
+
+sub stream_parms {
+  my $self = shift;
+  return "stream=1";
 }
 
 # this searches the current directory for MP3 files and subdirectories
@@ -352,12 +358,12 @@ sub directory_top {
   } else {
     $links = $self->generate_navpath_arrows($title);
   }
-  print table(
+  print table({-width=>'100%'},
 	      Tr({-align=>'LEFT'},
-		 td(a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-			 img({-src => $self->cd_icon($dir), -align=>'MIDDLE',
-			      -alt=> 'Play All',-border=>0})),
-		       td($links))),
+		 td({-align=>'MIDDLE'},a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
+		      img({-src => $self->cd_icon($dir), -align=>'MIDDLE',
+			   -alt=> 'Play All',-border=>0}))),
+		 td($links)),
 
 	      Tr({-align=>'LEFT'},
 		 td({-colspan=>2},
@@ -366,7 +372,7 @@ sub directory_top {
 		    .'&nbsp;'.
 		    a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
 		      font({-class=>'directory'},'[Stream All]'))
-		    )
+		   )
 		),
 	     );
   if (my $t = $self->stream_timeout) {
@@ -623,7 +629,7 @@ sub mp3_list_top {
   $uri =~ s!([^a-zA-Z0-9/])!uc sprintf("%%%02x",ord($1))!eg;
 
   # apache and/or mod_perl has some problem redirecting from POST requests...
-  print start_form(-action=>"${uri}playlist.m3u",-method=>'GET');  
+  print start_form(-name=>'form',-action=>"${uri}playlist.m3u",-method=>'GET');  
 #  print start_form(-action=>"${uri}playlist.m3u");
 
   print
@@ -641,6 +647,7 @@ sub mp3_list_top {
 
 sub control_buttons {
   my $self = shift;
+  warn "I am $self";
   return (submit('Play Selected'),submit('Shuffle All'),submit('Play All')); 
 }
 
@@ -852,8 +859,8 @@ sub send_stream {
 
   my $info = $self->fetch_info($file);
   return DECLINED unless $info;  # not a legit mp3 file?
-  open (FILE,$file) || return DECLINED;
-  binmode(FILE);  # to prevent DOS text-mode foolishness
+  my $fh = $self->open_file($file) || return DECLINED;
+  binmode($fh);  # to prevent DOS text-mode foolishness
 
   my $size = -s $file;
   my $description = $info->{description};
@@ -880,7 +887,7 @@ sub send_stream {
     my $bytes    = int($fraction * $size);
     while ($bytes > 0) {
       my $data;
-      my $b = read(FILE,$data,2048) || last;
+      my $b = read($fh,$data,2048) || last;
       $bytes -= $b;
       $r->print($data);
     }
@@ -888,8 +895,16 @@ sub send_stream {
   }
 
   # we get here for untimed transmits
-  $r->send_fd(\*FILE);
+  $r->send_fd($fh);
   return OK;
+}
+
+# called to open the MP3 file
+# can override to do downsampling, etc
+sub open_file {
+  my $self = shift;
+  my $file = shift;
+  return Apache::File->new($file);
 }
 
 #################################################
@@ -1019,9 +1034,12 @@ sub stream_base {
     my $user = $r->connection->user;
     $auth_info = "$user:$pw\@";
   }
-  $basename = "http://$auth_info" . $r->server->server_hostname;
-  $basename .= ':' . $r->get_server_port 
-    unless $r->get_server_port == 80;
+  my $vhost = $r->header_in('Host');
+  unless ($vhost) {
+    $vhost = $r->hostname;
+    $vhost .= ':' . $r->get_server_port unless $r->get_server_port == 80;
+  }
+  $basename = "http://${auth_info}${vhost}";
   return $basename;
 }
 

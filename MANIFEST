@@ -13,6 +13,7 @@ apache_mp3/playlist.gif
 apache_mp3/sound.gif
 MP3/Sorted.pm
 MP3/Playlist.pm
+MP3/Resample.pm
 screenshots/cd_listing.gif
 screenshots/mp3_listing.gif
 screenshots/streaming.gif

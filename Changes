@@ -1,4 +1,8 @@
 Revision history for Perl extension Apache::MP3.
+2.16 Mon Apr 30 22:31:17 EDT 2001
+	- Added Apache::MP3::Resample, which provides dynamic downsampling
+		for people with slower connections.
+
 2.15 Mon Jan  1 22:20:24 EST 2001
 	- Fixed security bug which allowed people to bypass the AllowDownload setting.
 	- Made "AllowDownload no" compatible with cover art.
