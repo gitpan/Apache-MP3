@@ -1,3 +1,19 @@
+2.22 Sun Jan  6 15:25:07 EST 2002
+	- Folded in Devin Carraway's <apache-modmp3@devin.com> patches
+		for Ogg Vorbis Support.
+	- Added Wave file support, along with a new architecture to deal
+		with various media types.
+	- Added Allen Day's modifications for handling directory list icons
+		with some of my own modifications to make this more flexible.
+	- Bug fixes in the ICY headers.
+
+2.21 Tue Nov 20 11:44:43 EST 2001
+	- Folded in Allen Day's modifications for
+		handling .pls (audio/x-scpls) files.
+	- Folden in Iaian Wade's <iwade@habitue.net> modifications for 
+		handling ETags (speeds performance on big directories).
+	- Changes from Joshua Cantard to fix information sent prior to streaming.
+
 2.20 Mon Sun Sep 23 01:11:37 EDT 2001
 	- Multiple bugs fixed in playlist.
 

@@ -1,11 +1,12 @@
 Apache::MP3 version 2.x
 
-This module takes a hierarchy of directories containing MP3 files and
-presents it as a browsable song library for streaming over the web.
-It requires the Apache web server, the mod_perl embedded Perl
-interpreter, and the MP3::Info module.
+This module takes a hierarchy of directories containing MP3, Ogg
+Vorbis, or Wav audio files and presents it as a browsable song library
+for streaming over the web.  It requires the Apache web server, the
+mod_perl embedded Perl interpreter, and either or both of the
+MP3::Info and Ogg::Vorbis modules.
 
-MP3 files are displayed in a list that shows the MP3 title, artist,
+Audio files are displayed in a list that shows the title, artist,
 duration and bitrate.  Subdirectories are displayed with "CD" icons.
 The user can download an MP3 file to disk by clicking on its title,
 stream it to an MP3 decoder by clicking on the "play" link. Users can
@@ -36,6 +37,10 @@ MIME type audio/mpeg.  Add the following to httpd.conf or srm.conf:
  AddType audio/mpeg mp3 MP3
  AddType audio/playlist m3u M3U
 
+If you plan to use Ogg Vorbis, add the following as well:
+
+ AddType application/x-ogg ogg OGG
+
 3. Install icons and stylesheet
 
 This module uses a set of icons and a cascading stylesheet to generate
@@ -48,7 +53,7 @@ You may change the location of this directory by setting the
 I<BaseDir> configuration variable.  See the I<Customizing> section for
 more details.
 
-4. Set Apache::MP3 to be the handler for the MP3 directory
+4. Set Apache::MP3 to be the handler for the songs directory
 
 In httpd.conf or access.conf, create a E<lt>LocationE<gt> or
 E<lt>DirectoryE<gt> section, and make Apache::MP3 the handler for this
@@ -60,7 +65,7 @@ directory where you will be storing song files:
     PerlHandler Apache::MP3
   </Location>
 
-If you would prefer an MP3 file listing that allows the user to sort
+If you would prefer the song file listing that allows the user to sort
 it in various ways, set the handler to use the Apache::MP3::Sorted
 subclass instead.  A further elaboration is Apache::MP3::Playlist,
 which uses cookies to manage a persistent playlist for the user.
@@ -74,10 +79,10 @@ the MP3::Info module at server startup time.  If you have a mod_perl
   use MP3::Info;
   use Apache::MP3;
 
-6. Set up MP3 directory
+6. Set up song directory
 
 Create a directory in the web server document tree that will contain
-the MP3 files to be served.  The module recognizes and handles
+the audio files to be served.  The module recognizes and handles
 subdirectories appropriately.  I suggest organizing directories
 hierarchically by artist and/or album name.
 

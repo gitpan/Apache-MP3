@@ -1,17 +1,16 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.9 2001/07/17 01:37:23 lstein Exp $
+# $Id: MP3.pm,v 1.14 2002/01/06 20:36:09 lstein Exp $
 
 use strict;
-use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
-use Apache::File;
-use MP3::Info;
+use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE HTTP_NOT_MODIFIED);
+use IO::File;
 use Socket 'sockaddr_in';
 use CGI qw/:standard escape *table *TR *blockquote *center *h1/;
 use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.20';
+$VERSION = '2.22';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -24,8 +23,11 @@ use constant CDICON       => 'cd_icon.gif';
 use constant CDLISTICON   => 'cd_icon_small.gif';
 use constant PLAYLISTICON => 'playlist.gif';
 use constant COVERIMAGE   => 'cover.jpg';
+use constant COVERIMAGESMALL   => 'cover_small.jpg';
+use constant PLAYLISTIMAGE=> 'playlist.jpg';
 use constant SONGICON     => 'sound.gif';
 use constant ARROWICON    => 'right_arrow.gif';
+use constant MISSINGCOMMENT => 'unknown';
 use constant SUBDIRCOLUMNS => 3;
 use constant PLAYLISTCOLUMNS => 3;
 use constant HELPURL      => 'apache_mp3_help.gif:614x498';
@@ -45,6 +47,14 @@ my %FORMAT_FIELDS = (
 		     t => 'title',
 		     y => 'year',
 		     );
+
+my @suffix      = qw(.ogg .OGG .wav .WAV .mp3 .MP3 .mpeg .MPEG);
+my %supported_types = (
+		       # type                 condition                     handler method
+		       'audio/mpeg'        => eval "use MP3::Info; 1;"   && 'read_mpeg',
+		       'application/x-ogg' => eval "use Ogg::Vorbis; 1;" && 'read_vorbis',
+		       'audio/x-wav'       => eval "use Audio::Wav; 1;"  && 'read_wav',
+		      );
 
 my $NO  = '^(no|false)$';  # regular expression
 my $YES = '^(yes|true)$';  # regular expression
@@ -77,7 +87,7 @@ sub run {
   # this is called to stream a file
   return $self->stream if param('stream');
 
-  # this is called to generate a playlist on the curren directory
+  # this is called to generate a playlist on the current directory
   return $self->send_playlist($self->find_mp3s)
     if param('Play All');
 
@@ -101,7 +111,8 @@ sub run {
 
   # this is called to generate a playlist for one file
   if (param('play')) {
-    my($basename) = $r->uri =~ m!([^/]+?)(\.m3u)?$!;
+    my $dot3 = '.m3u|.pls';
+    my($basename) = $r->uri =~ m!([^/]+?)($dot3)?$!;
     $basename = quotemeta($basename);
     my @matches;
     if (-e $self->r->filename) {
@@ -112,7 +123,16 @@ sub run {
       # find the MP3 file that corresponds to basename.m3u
       @matches = grep { m!/$basename[^/]*$! } @{$self->find_mp3s};
     }
-    $self->send_playlist(\@matches);
+
+    if ($r->request($r->uri)->content_type eq 'audio/playlist'){
+      $self->send_playlist(\@matches);
+    }
+    elsif($r->request($r->uri)->content_type eq 'audio/x-scpls'){
+      open(FILE,$r->filename) || return 404;
+      $r->send_fd(\*FILE);
+      close(FILE);
+    }
+
     return OK;
   }
 
@@ -150,9 +170,12 @@ sub process_directory {
 sub download_file {
   my $self = shift;
   my $file = shift;
-  my $is_mp3 = $self->r->content_type eq 'audio/mpeg';
+  my $type = $self->r->content_type;
 
-  if ($is_mp3 && !$self->download_ok) {
+  my $is_audio =  $self->r->content_type eq 'audio/mpeg' 
+               || $self->r->content_type eq 'application/x-ogg';
+
+  if ($is_audio && !$self->download_ok) {
     $self->r->log_reason('File downloading is forbidden');
     return FORBIDDEN;
   } else {
@@ -217,22 +240,24 @@ sub send_playlist {
   $r->print("#EXTM3U$CRLF");
   my $stream_parms = $self->stream_parms;
   foreach (@$urls) {
-#    my $uri = quotemeta(dirname($r->uri));
-#    my $dir = dirname($r->filename);
-#    my $file = $_;
-#    $file =~ s,$uri/,,;
-#    $file = "$dir/$file";
     my $subr = $r->lookup_uri($_) or next;
     my $file = $subr->filename;
-    my $info = $self->fetch_info($file);
-    $r->print('#EXTINF:' , $info->{seconds} , 
-	      ',', $info->{title}, 
-	      ' - ',$info->{artist},
-	      ' (',$info->{album},')',
-	      $CRLF);
-#    $r->print('#EXTART:' , $info->{artist}, $CRLF);
-#    $r->print('#EXTALB:' , $info->{album}, $CRLF);
-#    $r->print('#EXTTIT:' , $info->{title}, $CRLF);
+    my $type = $subr->content_type;
+    my $data = $self->fetch_info($file,$type);
+    my $format = $self->r->dir_config('DescriptionFormat');
+    if ($format) {
+      $r->print('#EXTINF:' , $data->{seconds} , ',');
+      (my $description = $format) =~ s{%([atfglncrdmsqS%])}
+                                      {$1 eq '%' ? '%' : $data->{$FORMAT_FIELDS{$1}}}gxe;
+      print $description;
+      print $CRLF;
+    } else {
+      $r->print('#EXTINF:' , $data->{seconds} ,
+		',', $data->{title},
+		' - ',$data->{artist},
+		' (',$data->{album},')',
+		$CRLF);
+    }
     $self->path_escape(\$_);
     if ($local) {
       $r->print($file,$CRLF);
@@ -260,7 +285,7 @@ sub find_mp3s {
     # strip directory part
     substr($_,0,length($dir)+1) = '' if index($_,$dir) == 0;
     # turn into a URL
-    $_ = "$uri/$_";  
+    $_ = "$uri/$_";
   }
   return \@uris;
 }
@@ -303,7 +328,7 @@ sub load_playlist {
   my @mp3s = ();
   my $uri = dirname($self->r->uri);
   local $_;
-  my $fh = Apache::File->new($playlist)
+  my $fh = IO::File->new($playlist)
     or die "Failed to open $playlist";
   while(<$fh>) {
     chomp;
@@ -330,6 +355,21 @@ sub shuffle {
 sub list_directory {
   my $self = shift;
   my $dir  = shift;
+
+  return DECLINED unless -d $dir;
+
+  my $last_modified = (stat(_))[9];
+
+  $self->r->header_out('ETag' => sprintf("%lx-%s", $last_modified, $VERSION));
+
+  if (my $check = $self->r->header_in("If-None-Match")) {
+    my ($time, $ver) = $check =~ /^([a-f0-9]+)-([0-9.]+)$/;
+
+    if ($check eq '*' or (hex($time) == $last_modified and $ver == $VERSION)) {
+      return HTTP_NOT_MODIFIED;
+    }
+  }
+
   return DECLINED unless my ($directories,$mp3s,$playlists) 
     = $self->read_directory($dir);
 
@@ -501,7 +541,7 @@ sub format_subdir {
   (my $title = $subdir) =~ s/\s/$nb/og;  # replace whitespace with &nbsp;
   my $result = p(
 		 a({-href=>escape($subdir).'/playlist.m3u?Play+All+Recursive=1'},
-		   img({-src=>$self->cd_list_icon,
+		   img({-src=>$self->cd_list_icon($subdir),
 			-align=>'ABSMIDDLE',
 			-class=>'subdir',
 			-alt=>'Play Contents',
@@ -561,9 +601,11 @@ sub format_playlist {
   my $self = shift;
   my $playlist = shift;
   my $nb = '&nbsp;';
-  (my $title = $playlist) =~ s/\.m3u$//;
+  my $dot3 = '.m3u|.pls';
+  my($param) = $playlist =~ /\.m3u$/ ? '?play=1' : '';
+  (my $title = $playlist) =~ s/$dot3$//;
   $title =~ s/\s/$nb/og;
-  my $url = escape($playlist) . '?play=1';
+  my $url = escape($playlist) . $param;
 
   return p(a({-href => $url},
              img({-src => $self->playlist_icon,
@@ -743,15 +785,19 @@ sub read_directory {
   opendir D,$dir or return;
   while (defined(my $d = readdir(D))) {
     next if $self->skip_directory($d);
+
+    # skip if file is unreadable
+    next unless -r "$dir/$d";
+
     my $mime = $self->r->lookup_file("$dir/$d")->content_type;
 
     push(@directories,$d) if !$seen{$d}++ && $mime eq DIR_MAGIC_TYPE;
 
     # .m3u files should be configured as audio/playlist MIME types in your apache .conf file
-    push(@playlists,$d) if $mime =~ m!^audio/(playlist|x-mpegurl|mpegurl)$!;
+    push(@playlists,$d) if $mime =~ m!^audio/(playlist|x-mpegurl|mpegurl|x-scpls)$!;
 
-    next unless $mime eq 'audio/mpeg';
-    next unless $mp3s{$d} = $self->fetch_info("$dir/$d");
+    next unless $supported_types{$mime};
+    next unless $mp3s{$d} = $self->fetch_info("$dir/$d", $mime);
   }
   closedir D;
   return \(@directories,%mp3s,@playlists);
@@ -761,10 +807,11 @@ sub read_directory {
 # return title, artist, duration, and kbps
 sub fetch_info {
   my $self = shift;
-  my $file = shift;
+  my ($file,$type) = @_;
+  return unless $supported_types{$type};
 
   if (!$self->read_mp3_info) {  # don't read config info
-    my $f = basename($file);
+    my $f = basename($file,@suffix);
     return {
 	    filename    => $f,
 	    description => $f,
@@ -774,42 +821,119 @@ sub fetch_info {
   my %data = $self->read_cache($file);
 
   unless (%data and keys(%data) == keys(%FORMAT_FIELDS)) {
-    return unless my $info = get_mp3info($file);
-
-    my $tag  = get_mp3tag($file);
-    my ($title,$artist,$album,$year,$comment,$genre,$track) = 
-      @{$tag}{qw(TITLE ARTIST ALBUM YEAR COMMENT GENRE TRACKNUM)} if $tag;
-    my $duration = sprintf "%dm %2.2ds", $info->{MM}, $info->{SS};
-    my $seconds  = ($info->{MM} * 60) + $info->{SS};
-    my $base = basename($file,".mp3",".MP3",".mpeg",".MPEG");
-
-    %data =(title        => $title || $base,
-	    artist       => $artist,
-	    duration     => $duration,
-	    genre        => $genre,
-	    album        => $album,
-	    comment      => $comment,
-	    min          => $info->{MM},
-	    sec          => $info->{SS},
-	    seconds      => $seconds,
-	    track        => $track || '',
-	    year         => $year,
-	    bitrate      => $info->{BITRATE},
-	    samplerate   => $info->{FREQUENCY},
-	    filename     => basename($file),
-	   );
+    my $handler = $supported_types{$type};
+    $self->$handler($file,\%data);
+    # fill in missing fields
+    $data{filename} ||= basename($file);
+    $data{title}    ||= basename($file,@suffix);
     $self->write_cache($file => \%data);
+  }
+
+  if (my $blank = $self->missing_comment) {
+    foreach (qw(artist duration genre album track)) {
+      $data{$_} ||= $blank;
+    }
   }
 
   $data{description} = $self->description(\%data);
   return \%data;
 }
 
+# these methods are called to read the MIME types specified in %supported_types
+sub read_mpeg {
+  my $self = shift;
+  my ($file,$data) = @_;
+
+  return unless my $info = get_mp3info($file);
+
+  my $tag  = get_mp3tag($file);
+  my ($title,$artist,$album,$year,$comment,$genre,$track) = 
+    @{$tag}{qw(TITLE ARTIST ALBUM YEAR COMMENT GENRE TRACKNUM)} if $tag;
+  my $duration = sprintf "%dm %2.2ds", $info->{MM}, $info->{SS};
+  my $seconds  = ($info->{MM} * 60) + $info->{SS};
+
+  %$data =(
+	   title        => $title || '',
+	   artist       => $artist || ''   ,
+	   duration     => $duration || '' ,
+	   genre        => $genre || ''    ,
+	   album        => $album || ''    ,
+	   comment      => $comment || '',
+	   year         => $year || '',
+	   min          => $info->{MM},
+	   sec          => $info->{SS},
+	   seconds      => $seconds,
+	   track        => $track || '',
+	   bitrate      => $info->{BITRATE},
+	   samplerate   => $info->{FREQUENCY},
+	  );
+}
+
+sub read_vorbis {
+  my $self = shift;
+  my ($file,$data) = @_;
+
+  my $ogg = Ogg::Vorbis->new or return;
+  my $oggfh = IO::File->new($file) || die "$file: $!";
+  $ogg->open($oggfh);
+  my $comments = $ogg->comment;
+  my $info = $ogg->info;
+  my $sec = int $ogg->time_total;
+
+  # LS: it is unclear to me from the documentation at
+  # http://xiph.org/ogg/vorbis/doc/v-comment.html
+  # whether the fields are required to be case sensitive.  The patch
+  # submitted by Devi Carraway used lower case, but is that  right
+  # in general?
+  %$data = (
+	    title => $comments->{title}     || $comments->{TITLE}   || '',
+	    artist => $comments->{artist}   || $comments->{ARTIST}  || '',
+	    duration => sprintf("%dm %2.2ds", int($sec/60), $sec%60),
+	    genre => $comments->{genre}     || $comments->{GENRE}   || '',
+	    album => $comments->{album}     || $comments->{ALBUM}   || '',
+	    comment => $comments->{comment} || $comments->{COMMENT} || '',
+	    year => $comments->{year}       || $comments->{YEAR}    || '',
+	    track => $comments->{tracknumber} || $comments->{TRACKNUMBER} || '',
+	    bitrate => $info->bitrate_nominal/1000,
+	    samplerate => $info->rate,
+	    seconds => $sec,
+	    min => int $sec/60,
+	    sec => $sec%60,
+	   );
+  close $oggfh;
+}
+
+sub read_wav {
+  my $self = shift;
+  my ($file,$data) = @_;
+  my $wav = Audio::Wav->new;
+  my $reader = $wav->read($file);
+  my $comments = $reader->get_info() || {};
+  my $details  = $reader->details()  || {};
+  my $sec = $reader->length_seconds;
+  %$data = (
+	    title  => $comments->{title}  || $comments->{TITLE}  || '',
+	    artist => $comments->{artist} || $comments->{ARTIST} || '',
+	    album  => $comments->{album}  || $comments->{ALBUM}  || '',
+	    year   => $comments->{year}   || $comments->{YEAR}   || '',
+	    genre  => $comments->{genre}  || $comments->{GENRE}  || '',
+	    track  => $comments->{tracknumber} || $comments->{TRACKNUMBER} || '',
+	    comment => $comments->{comment} || $comments->{COMMENT} || '',
+	    min         => int $sec/60,
+	    sec         => $sec %60,
+	    seconds     => $sec,
+	    bitrate     => int($details->{bytes_sec}*8/1024),
+	    samplerate  => $details->{sample_rate},
+	    duration    => sprintf("%dm %2.2ds", int $sec/60,$sec%60),
+	   )
+}
+
+
 # a limited escape of URLs (does not escape directory slashes)
 sub path_escape {
   my $self = shift;
   my $uri = shift;
-  $$uri =~ s!([^a-zA-Z0-9/])!uc sprintf("%%%02x",ord($1))!eg;
+  $$uri =~ s!([^a-zA-Z0-9_/.-])!uc sprintf("%%%02x",ord($1))!eg;
 }
 
 # get fields to display in list of MP3 files
@@ -828,9 +952,12 @@ sub read_cache {
   my $cache_file = "$cache$file";
   my $file_age = -M $file;
   return unless -e $cache_file && -M $cache_file <= $file_age;
-  return unless my $c = Apache::File->new($cache_file);
-  my $data;
-  read($c,$data,5000);  # read to end of file
+  return unless my $c = IO::File->new($cache_file);
+  my ($data,$buffer);
+  while (read($c,$buffer,5000)) {
+    $data .= $buffer;
+  }
+  close $c;
   return split $;,$data;   # split into fields
 }
 
@@ -848,7 +975,7 @@ sub write_cache {
 
   my $dirname = dirname($cache_file);
   -d $dirname || eval{mkpath($dirname)} || return;
-  if (my $c = Apache::File->new(">$cache_file")) {
+  if (my $c = IO::File->new(">$cache_file")) {
     print $c join $;,%$data;
   }
   1;
@@ -860,7 +987,8 @@ sub send_stream {
   my ($file,$url) = @_;
   my $r = $self->r;
 
-  my $info = $self->fetch_info($file);
+  my $mime = $r->content_type;
+  my $info = $self->fetch_info($file,$mime);
   return DECLINED unless $info;  # not a legit mp3 file?
   my $fh = $self->open_file($file) || return DECLINED;
   binmode($fh);  # to prevent DOS text-mode foolishness
@@ -873,7 +1001,7 @@ sub send_stream {
     $size = int($size * ($bitrate / $info->{bitrate}));
   }
   my $description = $info->{description};
-  my $genre = $info->{genre} || 'unknown';
+  my $genre       = $info->{genre} || MISSINGCOMMENT;
 
   my $range = 0;
   $r->header_in("Range")
@@ -881,9 +1009,10 @@ sub send_stream {
     and $range = $1
     and seek($fh,$range,0);
 
+
   $r->print("ICY ". ($range ? 206 : 200) ." OK$CRLF");
   $r->print("icy-notice1:<BR>This stream requires a shoutcast/icecast compatible player.<BR>$CRLF");
-  $r->print("icy-notice2:Apache::MP3 module<BR>$CRLF");
+  $r->print("icy-notice2:Namp! (Apache::MP3)<BR>$CRLF");
   $r->print("icy-name:$description$CRLF");
   $r->print("icy-genre:$genre$CRLF");
   $r->print("icy-url:",$self->stream_base(1),$CRLF);
@@ -893,7 +1022,7 @@ sub send_stream {
   $r->print("Content-Range: bytes $range-" . ($size-1) . "/$size$CRLF")
     if $range;
   $r->print("Content-Length: $size$CRLF");
-  $r->print("Content-Type: audio/mpeg$CRLF");
+  $r->print("Content-Type: $mime$CRLF");
   $r->print("$CRLF");
   return OK if $r->header_only;
 
@@ -921,7 +1050,7 @@ sub send_stream {
 sub open_file {
   my $self = shift;
   my $file = shift;
-  return Apache::File->new($file);
+  return IO::File->new($file);
 }
 
 #################################################
@@ -964,16 +1093,17 @@ sub is_stream_client {
   $r->header_in('Icy-MetaData')   # winamp/xmms
     || $r->header_in('Bandwidth')   # realplayer
       || $r->header_in('Accept') =~ m!\baudio/mpeg\b!  # mpg123 and others
-	|| $r->header_in('User-Agent') =~ m!^NSPlayer/!;  # Microsoft media player
+	|| $r->header_in('User-Agent') =~ m!^NSPlayer/!  # Microsoft media player
+	  || $r->header_in('User-Agent') =~ m!^xmms/!;
 }
 
 # whether to read info for each MP3 file (might take a long time)
-sub read_mp3_info { 
+sub read_mp3_info {
   shift->r->dir_config('ReadMP3Info') !~ /$NO/oi;
 }
 
 # whether to time out streams
-sub stream_timeout { 
+sub stream_timeout {
   shift->r->dir_config('StreamTimeout') || 0;
 }
 
@@ -1003,14 +1133,29 @@ sub subdir_columns {shift->r->dir_config('SubdirColumns') || SUBDIRCOLUMNS  }
 sub playlist_columns {shift->r->dir_config('PlaylistColumns') || PLAYLISTCOLUMNS }
 
 # various configuration variables
-sub default_dir  { shift->r->dir_config('BaseDir') || BASE_DIR  }
-sub stylesheet   { shift->get_dir('Stylesheet', STYLESHEET)     }
-sub parent_icon  { shift->get_dir('ParentIcon',PARENTICON)      }
-sub cd_list_icon { shift->get_dir('DirectoryIcon',CDLISTICON)   }
-sub playlist_icon { shift->get_dir('PlaylistIcon',PLAYLISTICON)  }
-sub song_icon    { shift->get_dir('SongIcon',SONGICON)          }
-sub arrow_icon   { shift->get_dir('ArrowIcon',ARROWICON)        }
-sub help_url     { shift->get_dir('HelpURL',HELPURL)  }
+sub default_dir   { shift->r->dir_config('BaseDir') || BASE_DIR  }
+sub stylesheet    { shift->get_dir('Stylesheet', STYLESHEET)     }
+sub parent_icon   { shift->get_dir('ParentIcon',PARENTICON)      }
+sub cd_list_icon  {
+  my $self   = shift;
+  my $subdir = shift;
+  my $image = $self->r->dir_config('CoverImageSmall') || COVERIMAGESMALL;
+  my $directory_specific_icon = $self->r->filename."/$subdir/$image";
+  return -e $directory_specific_icon 
+    ? $self->r->uri . "/$subdir/$image"
+    : $self->get_dir('DirectoryIcon',CDLISTICON);
+}
+sub playlist_icon {
+  my $self = shift; 
+  my $image = $self->r->dir_config('PlaylistImage') || PLAYLISTIMAGE;
+  my $directory_specific_icon = $self->r->filename."/$image";
+  return -e $directory_specific_icon
+    ? $self->r->uri . "/$image"
+    : $self->get_dir('PlaylistIcon',PLAYLISTICON);
+}
+sub song_icon     { shift->get_dir('SongIcon',SONGICON)          }
+sub arrow_icon    { shift->get_dir('ArrowIcon',ARROWICON)        }
+sub help_url      { shift->get_dir('HelpURL',HELPURL)  }
 sub cd_icon {
   my $self = shift;
   my $dir = shift;
@@ -1021,6 +1166,14 @@ sub cd_icon {
     $self->get_dir('TitleIcon',CDICON);
   }
 }
+sub missing_comment {
+  my $self = shift;
+  my $missing = $self->r->dir_config('MissingComment');
+  return if $missing eq 'off';
+  $missing = MISSINGCOMMENT unless $missing;
+  $missing;
+}
+
 # create description string
 sub description {
   my $self = shift;
@@ -1033,7 +1186,7 @@ sub description {
        }gxe;
     return $description;
   } else {
-    my $description = $data->{title} || basename($data->{filename},".mp3",".MP3",".mpeg",".MPEG");
+    my $description = $data->{title} || basename($data->{filename},@suffix);
     $description .= " - $data->{artist}" if $data->{artist};
     $description .= " ($data->{album})"  if $data->{album};
     return $description;
@@ -1046,15 +1199,21 @@ sub stream_base {
   my $r = $self->r;
   my $basename = $r->dir_config('StreamBase');
   return $basename if $basename;
+
   my $auth_info;
-  my ($res,$pw) = $r->get_basic_auth_pw;
-  if ($res == 0 and !$suppress_auth) { # authentication in use
-    my $user = $r->connection->user;
-    $auth_info = "$user:$pw\@";
+  # the check for auth_name() prevents an annoying message in
+  # the apache server log when authentication is not in use.
+  if ($r->auth_name && !$suppress_auth) {
+    my ($res,$pw) = $r->get_basic_auth_pw;
+    if ($res == 0) { # authentication in use
+      my $user = $r->connection->user;
+      $auth_info = "$user:$pw\@";
+    }
   }
-  my $vhost = $r->header_in('Host');
+
+  my $vhost = $r->hostname;
   unless ($vhost) {
-    $vhost = $r->hostname;
+    $vhost = $r->server->server_hostname;
     $vhost .= ':' . $r->get_server_port unless $r->get_server_port == 80;
   }
   $basename = "http://${auth_info}${vhost}";
@@ -1063,7 +1222,7 @@ sub stream_base {
 
 
 # patterns to skip
-sub skip_directory { 
+sub skip_directory {
   my $self = shift;
   my $dir = shift;
   return 1 if $dir =~ /^\./;
@@ -1104,13 +1263,15 @@ __END__
 
 =head1 NAME
 
-Apache::MP3 - Generate streamable directories of MP3 files
+Apache::MP3 - Generate streamable directories of MP3 and Ogg Vorbis files
 
 =head1 SYNOPSIS
 
  # httpd.conf or srm.conf
  AddType audio/mpeg     mp3 MP3
  AddType audio/playlist m3u M3U
+ AddType audio/x-scpls  pls PLS
+ AddType application/x-ogg ogg OGG
 
  # httpd.conf or access.conf
  <Location /songs>
@@ -1135,9 +1296,9 @@ A B<demo version> can be browsed at http://www.modperl.com/Songs/.
 =head1 DESCRIPTION
 
 This module makes it possible to browse a directory hierarchy
-containing MP3 files, sort them on various fields, download them,
-stream them to an MP3 decoder like WinAmp, and construct playlists.
-The display is configurable and subclassable.
+containing MP3, Ogg Vorbis, or Wave files, sort them on various
+fields, download them, stream them to an MP3 decoder like WinAmp, and
+construct playlists.  The display is configurable and subclassable.
 
 NOTE: This version of Apache::MP3 is substantially different from
 the pre-2.0 version described in The Perl Journal.  Specifically, the
@@ -1151,8 +1312,13 @@ This section describes the installation process.
 
 =item 1. Prequisites
 
-This module requires mod_perl and MP3::Info, both of which are
-available on CPAN.
+This module requires mod_perl, MP3::Info (to stream MP3 files),
+Ogg::Vorbis (to stream OggVorbis files), and Audio::Wav (for Wave
+files) all of which are available on CPAN.
+
+The module will automatically adjust for the absence of one or more of
+the MP3::Info, Ogg::Vorbis or Audio::Wav modules by inhibiting the
+display of the corresponding file type.
 
 =item 2. Configure MIME types
 
@@ -1161,6 +1327,14 @@ MIME type audio/mpeg.  Add the following to httpd.conf or srm.conf:
 
  AddType audio/mpeg mp3 MP3
  AddType audio/playlist m3u M3U
+ AddType audio/x-scpls  pls PLS
+ AddType application/x-ogg ogg OGG
+ AddType audio/wav wav WAV
+
+Note that you need extemely large amounts of bandwidth to stream Wav
+files, and that few audio file players currently support this type of
+streaming.  Wav file support is primarily intended to allow for
+convenient downloads.
 
 =item 3. Install icons and stylesheet
 
@@ -1222,6 +1396,38 @@ example:
   Never_a_Moment_s_Thought_v2.mp3
   Peter Paul & Mary - Leaving On A Jet Plane.mp3
   Simon and Garfunkel/Simon And Garfunkel - April Come She Will.mp3
+
+Likewise, if you place a list of shoutcast URLs into a file with the
+.pls extension, it will be treated as a playlist and displayed to the
+user with a distinctive icon.  Selecting the playlist icon will
+contact the shoutcast servers in the playlist and stream their
+contents.  The playlist syntax is as in this example:
+
+  [playlist]
+  numberofentries=2
+  File1=http://205.188.245.132:8038
+  Title1=Monkey Radio: Grooving. Sexy. Beats.
+  Length1=-1
+  File2=http://205.188.234.67:8052
+  Title2=SmoothJazz
+  Length2=-1
+  Version=2
+
+Likewise, if you place a list of shoutcast URLs into a file with the
+.pls extension, it will be treated as a playlist and displayed to the
+user with a distinctive icon.  Selecting the playlist icon will
+contact the shoutcast servers in the playlist and stream their
+contents.  The playlist syntax is as in this example:
+
+  [playlist]
+  numberofentries=2
+  File1=http://205.188.245.132:8038
+  Title1=Monkey Radio: Grooving. Sexy. Beats.
+  Length1=-1
+  File2=http://205.188.234.67:8052
+  Title2=SmoothJazz
+  Length2=-1
+  Version=2
 
 =item 7. Set up an information cache directory (optional)
 
@@ -1288,12 +1494,15 @@ Table 1: Configuration Variables
  DISPLAY OPTIONS
  ArrowIcon	       URL		right_arrow.gif
  CoverImage            filename         cover.jpg
+ CoverImageSmall       filename         cover_small.jpg
+ PlaylistImage         filename         playlist.jpg
  DescriptionFormat     string           -see below-
  DirectoryIcon	       URL		cd_icon_small.gif
  PlaylistIcon          URL              playlist.gif
  Fields                list             title,artist,duration,bitrate
  HomeLabel	       string		"Home"
  LongList	       integer		10
+ MissingComment        string           "unknown"
  PathStyle             Staircase|Arrows Staircase
  SongIcon	       URL		sound.gif
  SubdirColumns	       integer		3
@@ -1377,7 +1586,9 @@ The default is "/apache_mp3."
 
 This variable sets the directory path for Apache::MP3's cache of MP3
 file information.  This must be an absolute path in the physical file
-system and be writable by Apache.
+system and be writable by Apache.  If not specified, Apache::MP3 will
+not cache the file information, resulting in slower performance on
+large directories.
 
 =item HelpURL I<URL:widthxheight>
 
@@ -1427,12 +1638,19 @@ the directory path at the top of the directory listing.
 
 =item CoverImage I<filename>
 
-Before displaying a subdirectory, Apache::MP3 will look inside the
+Before displaying a directory, Apache::MP3 will look inside the
 directory for an image file.  This feature allows you to display
 digitized album covers or other customized icons.  The default is
 "cover.jpg", but the image file name can be changed with
 I<CoverImage>.  If the file does not exist, the image specified by
 I<TitleIcon> will be displayed instead.
+
+=item CoverImageSmall I<filename>
+
+Before displaying the list of subdirectories, Apache::MP3 will check
+inside of each for an image file of this name.  If one is present, the
+image will displayed rather than the generic I<DirectoryIcon>.  The
+default is "cover_small.jpg".
 
 =item DescriptionFormat I<string>
 
@@ -1475,12 +1693,23 @@ Table 2: I<DescriptionFormat> Field Codes
 =item DirectoryIcon I<URL>
 
 Set the icon displayed next to subdirectories in directory listings,
-"cd_icon_small.gif" by default.
+"cd_icon_small.gif" by default.  This can be overridden on a
+directory-by-directory basis by placing a I<CoverImageSmall> image
+into the directory that you want to customize.
 
 =item PlaylistIcon I<URL>
 
 Set the icon displayed next to playlists in the playlist listings,
-"playlist.gif" by default.
+"playlist.gif" by default.  You can change this icon on a
+directory-by-directory basis by placing a file with this name in the
+current directory.
+
+=item PlaylistImage I<filename>
+
+Before displaying a playlist, the module will check inside the current
+directory for an image file named "playlist.jpg" to use as its icon.
+This directive changes the name of the playlist image file.  If no
+image is found, the icon specified by I<PlaylistIcon> is used instead.
 
 =item Fields I<title,artist,duration,bitrate>
 
@@ -1530,6 +1759,16 @@ The number of lines in the list of MP3 files after which it is
 considered "long".  In long lists, the control buttons are placed at
 the top as well as at the bottom of the table.  Defaults to 10.
 
+=item MissingComment I<string>
+
+This is the text string to use when an MP3 or Vorbis comment is missing,
+"unknown" by default.  For example, if the module is configured to
+display the artist name, but a music file is missing this field,
+"unknown" will be printed instead.  To turn this feature off, use an
+argument of "off".  Missing fields will now be blank.
+
+  PerlSetVar MissingComment off
+
 =item PathStyle I<Staircase|Arrows>
 
 Controls the style with which the parent directories are displayed.
@@ -1548,6 +1787,8 @@ list, "sound.gif" by default.
 
 The number of columns in which to display subdirectories (the small
 "CD icons").  Default 3.
+
+=item 
 
 =item PlaylistColumns I<integer>
 
@@ -2137,15 +2378,6 @@ You may subclass this to skip over other directories.
 Although it is pure Perl, this module relies on an unusual number of
 compiled modules.  Perhaps for this reason, it appears to be sensitive
 to certain older versions of modules.
-
-=head2 Can't find Apache::File at run time
-
-David Wheeler <dwheeler@salon.com> has reported problems relating to
-Apache::File, in which the module fails to run, complaining that it
-can't find Apache::File in @INC.  This affects Apache/1.3.12
-mod_perl/1.24.  Others have not yet reported this problem.  This can
-be worked around by replacing all occurrences of Apache::File with
-IO::File.
 
 =head2 Random segfaults in httpd children
 

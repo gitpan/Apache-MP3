@@ -1,12 +1,12 @@
 package Apache::MP3::Resample;
 
-# $Id: Resample.pm,v 1.4 2001/06/10 21:58:22 lstein Exp $
+# $Id: Resample.pm,v 1.6 2002/01/06 20:36:09 lstein Exp $
 # Resamples (downsamples) on the fly
 
 use strict;
 use vars qw(@ISA $VERSION);
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT);
-use Apache::File;
+use IO::File;
 use CGI qw(:standard *table *TR *td escape);
 use CGI::Cookie;
 use Apache::MP3::Playlist;
@@ -64,7 +64,7 @@ sub stream_parms {
   my $self = shift;
   my $p =  $self->SUPER::stream_parms;
   my $rate = escape($self->bitrate);
-  $p .= ";bitrate=$rate";
+  $p .= ";bitrate=$rate" if $rate;
   $p;
 }
 
@@ -130,7 +130,7 @@ sub open_file {
                "%$1"}exg;
   my $filter = $self->r->dir_config('VerboseMP3Encoder') 
     ? "$encode |" : "$encode 2>/dev/null |";
-  return Apache::File->new($filter);
+  return IO::File->new($filter);
 }
 
 1;
