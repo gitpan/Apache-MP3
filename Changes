@@ -1,7 +1,21 @@
-Revision history for Perl extension Apache::MP3.
+2.18 Sun Jun 10 17:21:36 EDT 2001
+	- Patch from Chris Nandor to get the file size approximately
+		right when streaming downsampled files.
+	- Patch from Chris Nandor to fix problems downloading
+		MP3 files when resampling turned on.
+	- Fixed an HTML-generating bug that prevented the browser window
+		title from being set.
+	- Removed hard-coded white background color from the resampling
+		window.
+
+2.17 Mon Feb 12 10:27:38 EST 2001
+	- Fixed problem of multiple fetch buttons appearing when
+		AllowStream is set to "no"
+
 2.16 Mon Apr 30 22:31:17 EDT 2001
 	- Added Apache::MP3::Resample, which provides dynamic downsampling
 		for people with slower connections.
+	- Added MS Media player to list of acceptable streaming clients.
 
 2.15 Mon Jan  1 22:20:24 EST 2001
 	- Fixed security bug which allowed people to bypass the AllowDownload setting.

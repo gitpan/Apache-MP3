@@ -1,6 +1,6 @@
 package Apache::MP3::Resample;
 
-# $Id: Resample.pm,v 1.2 2001/05/01 02:31:02 lstein Exp $
+# $Id: Resample.pm,v 1.4 2001/06/10 21:58:22 lstein Exp $
 # Resamples (downsamples) on the fly
 
 use strict;
@@ -34,6 +34,9 @@ sub run {
 sub process_cookies {
   my $self = shift;
   my $r = $self->r;
+
+  # don't set cookies for ordinary MP3 file downloads.
+  return if !param() && !-d $r->filename;
 
   if (my $cookies = CGI::Cookie->parse($r->header_in('Cookie'))) {
     $self->bitrate($cookies->{bitrate}->value)
@@ -85,7 +88,7 @@ sub sample_popup {
   my $self = shift;
   my @bitrates = $self->presets;
   unshift @bitrates,0;
-  my %labels = (0 => '-');
+  my %labels = (0 => '--');
   return (
 	  start_form(-name=>'form'),
 	  table(
@@ -108,7 +111,7 @@ sub directory_top {
   print start_TR,start_td;
   $self->SUPER::directory_top(@_);
   print end_td;
-  print td({-align=>'RIGHT',-valign=>'TOP',-bgcolor=>'white'},
+  print td({-align=>'RIGHT',-valign=>'TOP'},
 	   $self->sample_popup());
   print end_TR,end_table;
 }
@@ -124,7 +127,8 @@ sub open_file {
               {$1 eq 'b' ? $presets         :
                $1 eq 'f' ? quotemeta($file) :
                "%$1"}exg;
-  my $filter = "$encode 2>/dev/null |";
+  my $filter = $self->r->dir_config('VerboseMP3Encoder') 
+    ? "$encode |" : "$encode 2>/dev/null |";
   return Apache::File->new($filter);
 }
 
@@ -285,7 +289,13 @@ Draws the popup menu with the sample rate options.
 
 =head1 BUGS
 
-None ;-)
+When the external program is invoked to downsample the MP3 data, its
+standard error is redirected to /dev/null.  This prevents Lame's
+informational messages from gumming up the server error log, but also
+prevents the system from giving you helpful diagnostic messages, such
+as "file not found".  If you are having trouble with the downsampling,
+set the configuration variable VerboseMP3Encoder to a true value in
+order to see the standard error messages.
 
 =head1 ACKNOWLEDGEMENTS
 

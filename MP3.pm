@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.5 2001/05/01 02:31:02 lstein Exp $
+# $Id: MP3.pm,v 1.8 2001/06/10 21:58:22 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
@@ -11,8 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.16';
-
+$VERSION = '2.18';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -335,6 +334,7 @@ sub list_directory {
   $self->r->send_http_header('text/html');
   return OK if $self->r->header_only;
 
+  $self->page_top($dir);
   $self->directory_top($dir);
   $self->list_subdirs($directories) if @$directories;
   $self->list_playlists($playlists) if @$playlists;
@@ -344,37 +344,38 @@ sub list_directory {
   return OK;
 }
 
-# print the HTML at the top of a directory listing
-sub directory_top {
+# print the HTML at the top of the page
+sub page_top {
   my $self = shift;
   my $dir  = shift;
   my $title = $self->r->uri;
   print start_html(-title => $title,
 		   -style => {-src=>$self->stylesheet});
 
+}
+
+# print the HTML at the top of a directory listing
+sub directory_top {
+  my $self = shift;
+  my $dir  = shift;
+
+  my $title = $self->r->uri;
   my $links;
   if ($self->path_style eq 'staircase') {
     $links = $self->generate_navpath_staircase($title);
   } else {
     $links = $self->generate_navpath_arrows($title);
   }
-  print table({-width=>'100%'},
-	      Tr({-align=>'LEFT'},
-		 td({-align=>'MIDDLE'},a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-		      img({-src => $self->cd_icon($dir), -align=>'MIDDLE',
-			   -alt=> 'Play All',-border=>0}))),
-		 td($links)),
+  print a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
+	  img({-src => $self->cd_icon($dir), -align=>'LEFT',-alt=> 'Play All',-border=>0})),
+	    $links,
+	a({-href=>'./playlist.m3u?Shuffle+All+Recursive=1'},
+	  font({-class=>'directory'},'[Shuffle All]'))
+	  .'&nbsp;'.
+	    a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
+	    font({-class=>'directory'},'[Stream All]')),
+	      br({-clear=>'ALL'}),;
 
-	      Tr({-align=>'LEFT'},
-		 td({-colspan=>2},
-		    a({-href=>'./playlist.m3u?Shuffle+All+Recursive=1'},
-		      font({-class=>'directory'},'[Shuffle All]'))
-		    .'&nbsp;'.
-		    a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-		      font({-class=>'directory'},'[Stream All]'))
-		   )
-		),
-	     );
   if (my $t = $self->stream_timeout) {
     print p(strong('Note:'),"In this demo, streaming is limited to approximately $t seconds.\n");
   }
@@ -647,8 +648,7 @@ sub mp3_list_top {
 
 sub control_buttons {
   my $self = shift;
-  warn "I am $self";
-  return (submit('Play Selected'),submit('Shuffle All'),submit('Play All')); 
+  return (submit('Play Selected'),submit('Shuffle All'),submit('Play All'));
 }
 
 sub mp3_table_header {
@@ -705,10 +705,11 @@ sub format_song_controls {
   my $song_title = sprintf("%3d. %s", $count, $info->{title} || $song);
   my $url = escape($song);
   (my $play = $url) =~ s/(\.[^.]+)?$/.m3u?play=1/;
-
-  my $controls .= checkbox(-name=>'file',-value=>$song,-label=>'') if $self->stream_ok;
-  $controls    .= a({-href=>$url}, b('&nbsp;[fetch]'))             if $self->download_ok;
-  $controls    .= a({-href=>$play},b('&nbsp;[stream]'))            if $self->stream_ok;
+  
+  my $controls = '';
+  $controls .= checkbox(-name=>'file',-value=>$song,-label=>'') if $self->stream_ok;
+  $controls  .= a({-href=>$url}, b('&nbsp;[fetch]'))             if $self->download_ok;
+  $controls  .= a({-href=>$play},b('&nbsp;[stream]'))            if $self->stream_ok;
 
   return (
 	  p(
@@ -863,6 +864,12 @@ sub send_stream {
   binmode($fh);  # to prevent DOS text-mode foolishness
 
   my $size = -s $file;
+  my $bitrate = $info->{bitrate};
+  if ($self->can('bitrate') && $self->bitrate) {
+    ($bitrate = $self->bitrate) =~ s/ kbps//i;
+    # quick approximation
+    $size = int($size * ($bitrate / $info->{bitrate}));
+  }
   my $description = $info->{description};
   my $genre = $info->{genre} || 'unknown';
 
@@ -873,7 +880,7 @@ sub send_stream {
   $r->print("icy-genre:$genre$CRLF");
   $r->print("icy-url:",$self->stream_base(1),$CRLF);
   $r->print("icy-pub:1$CRLF");
-  $r->print("icy-br:$info->{BITRATE}$CRLF");
+  $r->print("icy-br:$bitrate$CRLF");
   $r->print("Accept-Ranges: bytes$CRLF");
   $r->print("Content-Length: $size$CRLF");
   $r->print("Content-Type: audio/mpeg$CRLF");
@@ -946,7 +953,8 @@ sub is_stream_client {
   my $r = shift->r;
   $r->header_in('Icy-MetaData')   # winamp/xmms
     || $r->header_in('Bandwidth')   # realplayer
-      || $r->header_in('Accept') =~ m!\baudio/mpeg\b!;  # mpg123 and others
+      || $r->header_in('Accept') =~ m!\baudio/mpeg\b!  # mpg123 and others
+	|| $r->header_in('User-Agent') =~ m!^NSPlayer/!;  # Microsoft media player
 }
 
 # whether to read info for each MP3 file (might take a long time)
@@ -1697,6 +1705,7 @@ study it alongside a representative HTML page:
 
  list_directory()
  -------------------------  page top --------------------------------
+    page_top()
     directory_top()
 
     <CDICON> <DIRECTORY> -> <DIRECTORY> -> <DIRECTORY>
@@ -1804,6 +1813,13 @@ the requested file and returns an Apche response code.  It checks
 whether streaming is allowed and then passes the request on to
 send_stream().
 
+=item $fh = $mp3->open_file($file)
+
+This method is called by stream() to open the file to be streamed.  It
+accepts a file path and returns a filehandle.  This can be overridden
+to do interesting things to the MP3 file, such as resample it or
+collect statistics.
+
 =item $mp3->send_playlist($urls,$shuffle)
 
 This method generates a playlist that is sent to the browser.  It is
@@ -1852,6 +1868,11 @@ name. It returns a HTML fragment used by playlist_list().
 
 This is the top level formatter for directory listings.  It is passed
 the URL of a directory and returns an Apache response code.
+
+=item $mp3->page_top($dir)
+
+This method begins the HTML at the top of the page from the initial
+<head> section through the opening <body>.
 
 =item $mp3->directory_top($dir)
 
