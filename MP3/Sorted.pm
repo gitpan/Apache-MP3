@@ -1,16 +1,16 @@
 package Apache::MP3::Sorted;
-
+# $Id: Sorted.pm,v 1.3 2000/09/09 21:56:37 lstein Exp $
 # example of how to subclass Apache::MP3 in order to provide
 # control over the sorting of the rows of the MP3 table
 
 use strict;
 use Apache::MP3;
-use CGI 'param';
+use CGI qw/:standard *TR param/;
+
 use vars qw(@ISA $VERSION);
 @ISA = 'Apache::MP3';
 
-$VERSION = 1.00;
-# $Id: Sorted.pm,v 1.2 2000/09/03 18:27:52 lstein Exp $
+$VERSION = 2.00;
 
 # to choose the right type of sort for each of the mp3 fields
 my %sort_modes = (
@@ -33,39 +33,61 @@ sub handler {
   __PACKAGE__->handle_request(@_);
 }
 
-sub sort_field {
-  my $self = shift;
-  return lc param('sort') if param('sort');
-  return lc $self->r->dir_config('SortField');
+sub sort_fields {
+  my $self       = shift;
+  my $field_spec = lc param('sort') if param('sort');
+  # If there is not SortFields var, look for SortField, which is the var used
+  # by the one sort field Apache::MP3::Sorted. This should retain a good amount
+  # of backward compatibility
+  $field_spec  ||= lc($self->r->dir_config('SortFields')
+                      || $self->r->dir_config('SortField'));
+  return split /[^\w+-]+/, $field_spec;
 }
 
 # sort MP3s
 sub sort_mp3s {
-  my $self = shift;
-  my $files = shift;
-  my $field       = $self->sort_field;
+  my $self   = shift;
+  my $files  = shift;
+  my @sort_info = (); # holds info about how to sort each field
 
-  # look up how we should do the sorting
-  (my $base_field = $field) =~ s/^[+-]//;
-  my $sort_field   = $sort_modes{$base_field}[0];
-  my $sort_type    = $sort_modes{$base_field}[1];
-
-  # no known sort type chosen
-  unless ($sort_field) {
-    $self->r->warn("unsupported sort field $field passed to sort_mp3s()") if $field;
-    return $self->SUPER::sort_mp3s($files);  
+  # Verify the sorting fields and build up our @sort_info data structure that
+  # keep track of how everything should work.
+  foreach ($self->sort_fields) {
+    my ($reverse_sort, $field) = /^([+-]?)(.*)/;
+    $reverse_sort = ($reverse_sort eq '-');
+    if (exists($sort_modes{$field})) {
+      # each @sort_info entry is [sort_order, sort_field, sort_type]
+      push(@sort_info, [$reverse_sort, $field, $sort_modes{$field}[1]]);
+    } else {
+      $self->r->warn("Ignoring unsupported sort field $_ in sort_mp3s().");
+    }
   }
 
-  # do the sort
-  my @sorted;
-  @sorted = sort { $files->{$a}{$sort_field} cmp
-		     $files->{$b}{$sort_field} } keys %$files if $sort_type eq 'alpha';
+  if (!@sort_info) {
+    # no known sort types given
+    $self->r->warn("No recognized sort fields passed to sort_mp3s()");
+    return $self->SUPER::sort_mp3s($files);
+  }
 
-  @sorted = sort { $files->{$a}{$sort_field} <=>
-		     $files->{$b}{$sort_field} } keys %$files if $sort_type eq 'numeric';
+  # Create an anonymous subroutine so we have closure of @sort_info and $files
+  my $by_fields_sorter =
+    sub {
+      my $val = 0;
+      foreach (@sort_info) {
+        my ($reverse_sort, $field, $sort_type) = @$_;
+        my ($x, $y) = ($files->{$a}{$field}, $files->{$b}{$field});
+        ($x, $y) = ($y, $x) if $reverse_sort; # swap args for reverse sort
+        if ($sort_type eq 'alpha') {
+          $val = $x cmp $y;
+        } elsif ($sort_type eq 'numeric') {
+          $val = $x <=> $y;
+        }
+        last if $val;
+      }
+      return $val; # Found no compare difference between elements
+    };
 
-  # reverse order if sort field begins with - (hyphen)
-  return  $field =~ /^-/ ? reverse @sorted : @sorted;
+  return sort $by_fields_sorter keys %$files;
 }
 
 sub mp3_table_header {
@@ -106,7 +128,7 @@ Apache::MP3::Sorted - Generate sorted streamable directories of MP3 files
  <Location /songs>
    SetHandler perl-script
    PerlHandler Apache::MP3::Sorted
-   PerlSetVar  SortField     Title
+   PerlSetVar  SortFields    Album,Title,-Duration
    PerlSetVar  Fields        Title,Artist,Album,Duration
  </Location>
 
@@ -118,18 +140,54 @@ installing and using.
 
 =head1 CUSTOMIZING
 
-This class adds one new Apache configuration variable, B<SortField>.
-This is the name of the field to sort by default when the MP3 file
-listing is first displayed, after which the user can change the sort
-field by clicking on the column headers.
+This class adds one new Apache configuration variable, B<SortFields>.
+This is a list of the names of the fields to sort by default when the
+MP3 file listing is first displayed, after which the user can change
+the sort field by clicking on the column headers.
 
-The value of B<SortField> may be the name of any of the fields in the
-listing, such as I<Title>, I<Description>, I<Album> or I<Duration>.
-Example: 
+=item SortFields I<field>
 
-  PerlSetVar SortField Title
+The value of B<SortFields> may contain the names of any of the fields
+in the listing, such as I<Title>, or I<Album> I<Duration>.  By
+default, the sort direction will be alphabetically or numerically
+ascending.  Reverse this by placing a "-" in front of the field name
+(for symmetry, you can also prepend a "+" to signify normal ascending
+order).  After the initial sort, the user can change the sort order by
+clicking on the column headings of the file listing table.
 
-Sorry, but sorting on multiple fields is not supported at this time.
+Examples:
+
+  PerlSetVar SortFields  Album,Title    # sort ascending by album, then title
+  PerlSetVar SortFields  +Artist,-Kbps  # sort ascending by artist, descending by kbps
+
+When constructing a playlist from a recursive directory listing,
+sorting will be B<global> across all directories.  If no sort order is
+specified, then the module reverts to sorting by file and directory
+name.  A good value for SortFields is to sort by Artist,Album and
+track:
+
+  PerlSetVar SortFields Artist,Album,Track
+
+Alternatively, you might want to sort by Description, which
+effectively sorts by title, artist and album.
+
+The following are valid fields:
+
+    Field        Description
+
+    title        The title of the song
+    artist       The artist
+    album	 The album
+    track	 The track number
+    genre        The genre
+    description	 Description in the form "title - artist (album)"
+    comment      The comment field
+    duration     Duration of the song in hour, minute, second format
+    seconds      Duration of the song in seconds
+    kbps         Streaming rate of song in kilobits/sec
+    filename	 The physical name of the .mp3 file
+
+Field names are case insensitive.
 
 =head1 METHODS
 
@@ -141,19 +199,15 @@ It adds one new method:
 
 =over 4
 
-=item $field = $mp3->sort_field
+=item $field = $mp3->sort_fields
 
-Returns the name of the field to sort on by default.
+Returns a list of the names of the fields to sort on by default.
 
 =back
 
 =head1 BUGS
 
 Let me know.
-
-=head1 SEE ALSO
-
-L<Apache::MP3>, L<MP3::Info>, L<Apache>
 
 =head1 AUTHOR
 
@@ -163,12 +217,14 @@ This module is distributed under the same terms as Perl itself.  Feel
 free to use, modify and redistribute it as long as you retain the
 correct attribution.
 
+=head1 ACKNOWLEDGEMENTS
+
+Tim Ayers <tayers@bridge.com> conceived and implemented the multiple
+field sorting system.
+
+=head1 SEE ALSO
+
+L<Apache::MP3>, L<MP3::Info>, L<Apache>
+
+
 =cut
-
- 
- 
-
-
-
-
-

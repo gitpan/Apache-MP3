@@ -1,4 +1,5 @@
 package Apache::MP3;
+# $Id: MP3.pm,v 1.11 2000/09/09 22:07:48 lstein Exp $
  
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
@@ -7,12 +8,11 @@ use MP3::Info;
 use CGI qw/:standard escape *table *TR *blockquote *center *h1/;
 use File::Basename 'dirname','basename';
 use File::Path;
-use vars '$VERSION','@ISA';
-# @ISA = 'Apache';
-my $CRLF = "\015\012";
+use vars qw($VERSION);
 
-$VERSION = '2.10';
-# $Id: MP3.pm,v 1.9 2000/09/03 18:27:48 lstein Exp $
+$VERSION = '2.11';
+
+my $CRLF = "\015\012";
 
 # defaults:
 use constant BASE_DIR     => '/apache_mp3';
@@ -182,29 +182,38 @@ sub find_mp3s {
   my $dir = dirname($self->r->filename);
   my $uri = dirname($self->r->uri);
 
-  my $uris = $self->_find_mp3s($dir,$recurse);
-  foreach (@$uris) {
-    substr($_,0,length($dir)+1) = '' if index($_,$dir) == 0; # strip directory part
-    $_ = "$uri/$_";
+  my @uris = $self->sort_mp3s($self->_find_mp3s($dir,$recurse));
+  foreach (@uris) {
+    # strip directory part
+    substr($_,0,length($dir)+1) = '' if index($_,$dir) == 0;
+    # turn into a URL
+    $_ = "$uri/$_";  
   }
-  return $uris;
+  return \@uris;
 }
 
 # recursive find
 sub _find_mp3s {
   my $self = shift;
   my ($d,$recurse) = @_;
-
   my ($directories,$files) = $self->read_directory($d);
-  my @f = $self->sort_mp3s($files);
-  # we now have sorted list of files, so add directory back
-  foreach (@f) { $_ = "$d/$_" unless $d eq '.' }
+  # Add the directory back onto each file
+  unless ($d eq '.') {
+    foreach my $k (keys %$files) {
+      $files->{"$d/$k"} = $files->{$k};
+      delete $files->{$k};
+    }
+  }
 
   if ($recurse) {
-    push @f,@{$self->_find_mp3s("$d/$_",$recurse)} foreach @$directories;
-  } 
+    foreach (@$directories) {
+      my $f = $self->_find_mp3s("$d/$_",$recurse);
+      # Add the new files to our main hash
+      $files->{$_} = $f->{$_} foreach keys %$f;
+    }
+  }
 
-  return \@f;
+  return $files;
 }
 
 # sort MP3s
@@ -392,7 +401,7 @@ sub sort_subdirs {
   return sort @$subdirs; # alphabetic sort by default
 }
 
-# format an subdir entry and return its HTML
+# format a subdir entry and return its HTML
 sub format_subdir {
   my $self = shift;
   my $subdir = shift;
@@ -498,7 +507,7 @@ sub mp3_list_bottom {
   my $self = shift;
   my $mp3s = shift;  #hashref
   print  TR(td(),
-	    td({-align=>'LEFT',-colspan=>4},$self->control_buttons))
+	    td({-align=>'LEFT',-colspan=>10},$self->control_buttons))
     if $self->stream_ok;
   print end_table,"\n";
   print end_form;
@@ -575,7 +584,7 @@ sub read_directory {
     my $mime = $self->r->lookup_file("$dir/$d")->content_type;
     push(@directories,$d) if !$seen{$d}++ && $mime eq DIR_MAGIC_TYPE;
     next unless $mime eq 'audio/mpeg';
-    $mp3s{$d} = $self->fetch_info("$dir/$d");
+    next unless $mp3s{$d} = $self->fetch_info("$dir/$d");
   }
   closedir D;
   return \(@directories,%mp3s);
@@ -808,7 +817,7 @@ sub stream_base {
     my $user = $r->connection->user;
     $auth_info = "$user:$pw\@";
   }
-  $basename = "http://$auth_info" . $r->hostname;
+  $basename = "http://$auth_info" . $r->server->server_hostname;
   $basename .= ':' . $r->get_server_port 
     unless $r->get_server_port == 80;
   return $basename;
@@ -986,7 +995,6 @@ explanation of each follows.
  SubdirColumns	       integer		3
  LongList	       integer		10
  Fields                list             title,artist,duration,bitrate
- SortField             field name       filename
  PathStyle             Staircase|Arrows Staircase
 
  BaseDir	       URL		/apache_mp3
@@ -1082,20 +1090,7 @@ The following are valid fields:
 
 Note that MP3 rip and encoding software differ in what fields they
 capture and the exact format of such fields as the title and album.
-
-=item SortField I<field>
-
-This configuration variable sets the default sort field when file
-listings are initially displayed.  Any of the MP3 information fields
-listed in the previous section are allowed.  By default, the sort
-direction will be alphabetically or numerically ascending.  Reverse
-this by placing a "-" in front of the field name.  Examples:
-
-  PerlSetVar SortField  title      # sort ascending by title
-  PerlSetVar SortField  -kbps      # sort descending by kbps
-
-B<NOTE:> Sorting is only implemented in the Apache::MP3::Sorted
-module.
+Field names are case insensitive.
 
 =item PathStyle I<Staircase|Arrows>
 
@@ -1760,6 +1755,14 @@ bit lower using some stylesheet magic.  Can anyone help?
 =head1 SEE ALSO
 
 L<Apache::MP3::Sorted>, L<Apache::MP3::Playlist>, L<MP3::Info>, L<Apache>
+
+=head1 ACKNOWLEDGEMENTS
+
+Tim Ayers <tayers@bridge.com> found and fixed a misfeature in the way
+that playlists were sorted.
+
+Chris Nandor identified various bugs in the module and provided
+patches.
 
 =head1 AUTHOR
 

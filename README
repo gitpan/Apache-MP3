@@ -104,6 +104,13 @@ CHANGES
 
 Revision history for Perl extension Apache::MP3.
 
+2.11 Sat Sep  9 18:04:55 EDT 2000
+	Added Tim Ayer's patches for sorting.  Now can sort playlists 
+		on multiple fields (nice!)
+	Detect when playlist cookie is full, alert user, and suppress 
+		further attempts to add to playlist.
+	Documentation fixes.
+
 2.10 Sun Sep  3 20:29:41 MET DST 2000
 	Ooops.  Playlist.pm was inadvertently left out; now it's back in.
 	Fixed divide by zero error on corrupt MP3 files.

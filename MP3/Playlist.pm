@@ -1,4 +1,6 @@
 package Apache::MP3::Playlist;
+# $Id: Playlist.pm,v 1.4 2000/09/09 22:07:49 lstein Exp $
+# generates playlists in cookies
 
 use strict;
 use vars qw(@ISA $VERSION);
@@ -9,8 +11,8 @@ use CGI::Cookie;
 use Apache::MP3::Sorted;
 
 @ISA = 'Apache::MP3::Sorted';
-$VERSION = 1.01;
-# $Id: Playlist.pm,v 1.2 2000/09/03 18:27:52 lstein Exp $
+$VERSION = 1.02;
+# $Id: Playlist.pm,v 1.4 2000/09/09 22:07:49 lstein Exp $
 
 sub handler {
   __PACKAGE__->handle_request(@_);
@@ -31,6 +33,11 @@ sub process_playlist {
   if (my $cookies = CGI::Cookie->parse($r->header_in('Cookie'))) {
     my $playlist = $cookies->{playlist};
     @playlist = $playlist->value if $playlist;
+    if ($playlist[-1] && 
+	$r->lookup_uri($playlist[-1])->content_type ne 'audio/mpeg') {
+      $self->{possibly_truncated}++;
+      pop @playlist;  # get rid of the last
+    }
   }
 
   if (param('Clear All')) {
@@ -114,7 +121,7 @@ sub directory_bottom {
 		  submit(-class=>'playlist',-name=>'Shuffle All'),
 		  submit(-class=>'playlist',-name=>'Play All'),
 		  hidden(-name=>'playlist',-value=>1,-override=>1),
-		  end_form,
+		  end_form(),
 		  ))
 	   );
   }
@@ -123,10 +130,14 @@ sub directory_bottom {
 
 sub control_buttons {
   my $self = shift;
-  return (submit({-class=>'playlist',
-		  -name=>'Add to Playlist'}), 
-	  submit({-class=>'playlist',
-		  -name=>'Add All to Playlist'}), 
+  return (
+	  $self->{possibly_truncated} 
+	  ? ()
+	  : (submit({-class=>'playlist',
+		     -name=>'Add to Playlist'}), 
+	     submit({-class=>'playlist',
+		     -name=>'Add All to Playlist'})
+	    ), 
 	  submit('Play Selected'),  submit('Shuffle All'),     submit('Play All')); 
 }
 
@@ -137,7 +148,8 @@ sub lookup_descriptions {
   for my $song (@_) {
     next unless my $sub  = $r->lookup_uri($song);
     next unless my $file = $sub->filename;
-    $d{$song} = ' '.$self->fetch_info($file)->{description};
+    next unless my $info = $self->fetch_info($file);
+    $d{$song} = " $info->{description}";
   }
   return \%d;
 }
@@ -147,8 +159,10 @@ sub directory_top {
   $self->SUPER::directory_top;
   my @p = $self->playlist;
   print div({-align=>'CENTER'},
-	    a({-href=>'#playlist',-class=>'playlist'},'Playlist contains',scalar(@p),'songs.')
-	    ) if @p;
+	    a({-href=>'#playlist',-class=>'playlist'},'Playlist contains',scalar(@p),'songs.'),br,
+	    $self->{possibly_truncated} ? font({-color=>'red'},
+					       strong('Your playlist is now full. No more songs can be added.')) : '') 
+    if @p;
 }
 
 sub playlist {
@@ -295,15 +309,20 @@ Example:
       playlist=1;file=/Songs/Madonna/like_a_virgin.mp3;
       file=/Songs/Madonna/working_girl.mp3;
       file=/Songs/Beatles/let_it_be.mp3">
- Madonna and John, together again fir the first time</a>
+ Madonna and John, together again for the first time</a>
 
 =head1 BUGS
 
-Let me know.
+This module uses client-side cookies to mantain the playlist.  This
+limits the number of songs that can be placed in the playlist to about
+50 songs.
 
-=head1 SEE ALSO
+=head1 ACKNOWLEDGEMENTS
 
-L<Apache::MP3::Sorted>, L<Apache::MP3>, L<MP3::Info>, L<Apache>
+Chris Nandor came up with the idea for the persistent playlist and
+implemented it using server-side DBM files.  I reimplemented it using
+client-side cookies, which simplifies maintenance and security, but
+limits playlists in size.
 
 =head1 AUTHOR
 
@@ -312,5 +331,9 @@ Copyright 2000, Lincoln Stein <lstein@cshl.org>.
 This module is distributed under the same terms as Perl itself.  Feel
 free to use, modify and redistribute it as long as you retain the
 correct attribution.
+
+=head1 SEE ALSO
+
+L<Apache::MP3::Sorted>, L<Apache::MP3>, L<MP3::Info>, L<Apache>
 
 =cut
