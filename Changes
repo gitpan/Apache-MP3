@@ -1,4 +1,20 @@
 Revision history for Perl extension Apache::MP3.
+2.14 Sat Dec 30 23:10:32 EST 2000
+	- Fixed documentation to indicate that AddType requires dots before the
+		.mp3 and .MP3 extension names.
+	- Made the cache writing taint safe.
+	- Fixed generation of extended playlists to work with earlier versions
+		of WinAmp.
+	- Added playlist and local streaming patches kindly provided by
+		Jamie O'Shaughnessy.
+	- Fixed display of directory path links when the current directory has same
+		name as a parent directory.
+
+2.13 Thu Nov 30 12:17:31 EST 2000
+	- Patch from Jeffrey Sumler to prevent faults when streaming files containing
+		regular expression metacharacters
+	- Fix to prevent entire directory from being streamed when the directory
+		has same name as the desired MP3 file (Jeffrey Sumler identified problem).
 
 2.12 Tue Nov 21 08:39:15 EST 2000
 	** IMPORTANT NOTE **

@@ -1,16 +1,17 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.12 2000/09/10 21:38:22 lstein Exp $
- 
+# $Id: MP3.pm,v 1.2 2000/12/31 04:25:42 lstein Exp $
+
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
 use Apache::File;
 use MP3::Info;
+use Socket 'sockaddr_in';
 use CGI qw/:standard escape *table *TR *blockquote *center *h1/;
 use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.12';
+$VERSION = '2.14';
 
 my $CRLF = "\015\012";
 
@@ -22,10 +23,12 @@ use constant PLAYICON     => 'play.gif';
 use constant SHUFFLEICON  => 'shuffle.gif';
 use constant CDICON       => 'cd_icon.gif';
 use constant CDLISTICON   => 'cd_icon_small.gif';
+use constant PLAYLISTICON => 'playlist.gif';
 use constant COVERIMAGE   => 'cover.jpg';
 use constant SONGICON     => 'sound.gif';
 use constant ARROWICON    => 'right_arrow.gif';
 use constant SUBDIRCOLUMNS => 3;
+use constant PLAYLISTCOLUMNS => 3;
 use constant HELPURL      => 'apache_mp3_help.gif:614x498';
 my %FORMAT_FIELDS = (
 		     a => 'artist',
@@ -65,7 +68,7 @@ sub run {
   my $self = shift;
   my $r = $self->r;
 
-  # generate directory listing   
+  # generate directory listing
   return $self->process_directory($r->filename) 
     if -d $r->filename;  # should be $r->finfo, but STILL problems with this
 
@@ -101,8 +104,15 @@ sub run {
   if (param('play')) {
     my($basename) = $r->uri =~ m!([^/]+?)(\.m3u)?$!;
     $basename = quotemeta($basename);
-    # find the MP3 file that corresponds to basename.m3u
-    my @matches = grep { m!/$basename! } @{$self->find_mp3s};
+    my @matches;
+    if (-e $self->r->filename) {
+      # if the actual .m3u file exists (its a playlist) then we read it
+      # to get the list of files to send
+      @matches = $self->load_playlist($self->r->filename);
+    } else {
+      # find the MP3 file that corresponds to basename.m3u
+      @matches = grep { m!/$basename[^/]*$! } @{$self->find_mp3s};
+    }
     $self->send_playlist(\@matches);
     return OK;
   }
@@ -180,35 +190,48 @@ sub send_playlist {
   $r->send_http_header('audio/mpegurl');
   return OK if $r->header_only;
 
-    # The extended format is:
-    #	#EXTM3U
-    #	#EXTINF:seconds,artist - title - album
-    #	URL
-    # but apparently you can override with this
-    #	#EXTART:Britney Spears
-    #	#EXTALB:Oops!.. I Did It Again
-    #	#EXTTIT:Something or other
-    # and there doesn't seem to be a way to escape the -, so that's safer
-    # in theory, but if you send both it seems to ignore all but the EXTINF
-    # and there's no way to send seconds without it anyway, so we'll just do
-    # that.
+  # local user
+  my $local = $self->playlocal_ok && $self->is_local;
+
+  # The extended format is:
+  #	#EXTM3U
+  #	#EXTINF:seconds,title - artist (album)
+  #	URL
+  # but apparently you can override with this
+  #	#EXTART:Britney Spears
+  #	#EXTALB:Oops!.. I Did It Again
+  #	#EXTTIT:Something or other
+  # and there doesn't seem to be a way to escape the -, so that's safer
+  # in theory, but if you send both it seems to ignore all but the EXTINF
+  # and there's no way to send seconds without it anyway, so we'll just do
+  # that.
+  #
+  # .... except that the second format breaks older versions of winamp
+  # so we'll use EXTINF only!
 
   $self->shuffle($urls) if $shuffle;
   $r->print("#EXTM3U$CRLF");
   foreach (@$urls) {
-    my $uri = dirname($r->uri);
+    my $uri = quotemeta(dirname($r->uri));
     my $dir = dirname($r->filename);
     my $file = $_;
     $file =~ s,$uri/,,;
     $file = "$dir/$file";
     my $info = $self->fetch_info($file);
-    $r->print('#EXTINF:' , $info->{seconds} , ',', $info->{artist},
-	      ' - ', $info->{title}, ' - ', $info->{album}, $CRLF);
-    $r->print('#EXTART:' , $info->{artist}, $CRLF);
-    $r->print('#EXTALB:' , $info->{album}, $CRLF);
-    $r->print('#EXTTIT:' , $info->{title}, $CRLF);
+    $r->print('#EXTINF:' , $info->{seconds} , 
+	      ',', $info->{title}, 
+	      ' - ',$info->{artist},
+	      ' (',$info->{album},')',
+	      $CRLF);
+#    $r->print('#EXTART:' , $info->{artist}, $CRLF);
+#    $r->print('#EXTALB:' , $info->{album}, $CRLF);
+#    $r->print('#EXTTIT:' , $info->{title}, $CRLF);
     $self->path_escape(\$_);
-    $r->print ("$base$_?stream=1$CRLF");
+    if ($local) {
+      $r->print($file,$CRLF);
+    } else {
+      $r->print ("$base$_?stream=1$CRLF");
+    }
   }
   return OK;
 }
@@ -261,6 +284,26 @@ sub sort_mp3s {
   return sort keys %$files;
 }
 
+# load the contents of a playlist (.m3u) from disk
+sub load_playlist {
+  my $self = shift;
+  my $playlist = shift;
+  my @mp3s = ();
+  my $uri = dirname($self->r->uri);
+  local $_;
+  my $fh = Apache::File->new($playlist)
+    or die "Failed to open $playlist";
+  while(<$fh>) {
+    chomp;
+    s/\#.*//;         # get rid of comment and hint lines
+    s/\s+$//;         # get rid of whitespace at end of lines
+    next unless $_;
+    push @mp3s, "$uri/$_";
+  }
+  $fh->close;
+  return @mp3s
+}
+
 # shuffle an array
 sub shuffle {
   my $self = shift;
@@ -275,13 +318,15 @@ sub shuffle {
 sub list_directory {
   my $self = shift;
   my $dir  = shift;
-  return DECLINED unless my ($directories,$mp3s) = $self->read_directory($dir);
+  return DECLINED unless my ($directories,$mp3s,$playlists) 
+    = $self->read_directory($dir);
 
   $self->r->send_http_header('text/html');
   return OK if $self->r->header_only;
 
   $self->directory_top($dir);
   $self->list_subdirs($directories) if @$directories;
+  $self->list_playlists($playlists) if @$playlists;
   $self->list_mp3s($mp3s)           if %$mp3s;
   print hr                         unless %$mp3s;
   $self->directory_bottom($dir);
@@ -329,26 +374,24 @@ sub generate_navpath_staircase {
   my $self = shift;
   my $uri = shift;
   my $home =  $self->home_label;
+  my $indent = 3.0;
 
   my @components = split '/',$uri;
   unshift @components,'' unless @components;
   my ($path,$links);
   my $current_style = "line-height: 1.2; font-weight: bold; color: red;";
   my $parent_style  = "line-height: 1.2; font-weight: bold;";
-  my $indent = 0;
 
-  foreach (@components) {
-    $path .= escape($_) ."/";
-    if ($_ eq $components[-1]) {
-      $links .= div({-style=>"text-indent: ${indent}em; $current_style"},
-		    font({-size=>'+1'},$_ || $home))."\n";
-    } else {
-      my $l = a({-href=>$path},$_ || $home);
-      $links .= div({-style=>"text-indent: ${indent}em; $parent_style"},
-		    font({-size=>'+1'},$l))."\n";
-    }
-    $indent += 3.0;
+  for (my $c=0; $c < @components-1; $c++) {
+    $path .= escape($components[$c]) ."/";
+    my $idt = $c * $indent;
+    my $l = a({-href=>$path},$components[$c] || $home);
+    $links .= div({-style=>"text-indent: ${idt}em; $parent_style"},
+		  font({-size=>'+1'},$l))."\n";
   }
+  my $idt = (@components-1) * $indent;
+  $links .= div({-style=>"text-indent: ${idt}em; $current_style"},
+		font({-size=>'+1'},$components[-1] || $home))."\n";
   return $links;
 }
 
@@ -357,21 +400,18 @@ sub generate_navpath_arrows {
   my $self = shift;
   my $uri = shift;
   my $home =  $self->home_label;
-
   my @components = split '/',$uri;
   unshift @components,'' unless @components;
   my $path;
   my $links = start_h1();
   my $arrow = $self->arrow_icon;
-  foreach (@components) {
+  for (my $c=0; $c < @components-1; $c++) {
     $links .= '&nbsp;' . img({-src=>$arrow}) if $path;
-    $path .= escape($_) . "/";
-    if ($_ eq $components[-1]) {
-      $links .= "&nbsp;". ($_ || $home);
-    } else {
-       $links .= '&nbsp;' . a({-href=>$path},$_ || $home);
-    }
+    $path .= escape($components[$c]) . "/";
+    $links .= '&nbsp;' . a({-href=>$path},$components[$c] || $home);
   }
+  $links .= '&nbsp;' . img({-src=>$arrow}) if $path;
+  $links .= "&nbsp;". ($components[-1] || $home);
   $links .= end_h1();
   return $links;
 }
@@ -463,6 +503,66 @@ sub format_subdir {
   return $result;
 }
 
+sub playlist_list_top {
+  my $self = shift;
+  my $playlists = shift; # array ref
+  print hr;
+  print h2({-class=>'CDdirectories'}, 
+           sprintf('Playlists (%d)', scalar @$playlists));
+}
+
+# print the HTML at the bottom of the list of playlists
+sub playlist_list_bottom {
+  my $self = shift;
+  my $playlists = shift; # array ref
+}
+
+# print the HTML to format the list of playlists
+sub playlist_list {
+  my $self = shift;
+  my $playlists = shift; # array ref
+
+  my $cols = $self->playlist_columns;
+  my $rows = int(0.99 + @$playlists / $cols);
+
+  print start_center,
+    start_table({-border => 0, -width => '95%'}), "\n";
+
+  for(my $row = 0; $row < $rows; $row++) {
+    print start_TR({-valign => 'BOTTOM'});
+    for(my $col = 0; $col < $cols; $col++) {
+      my $i = $col * $rows + $row;
+      my $contents = $playlists->[$i] ? $self->format_playlist($playlists->[$i]) : '&nbsp;';
+      print td($contents);
+    }
+    print end_TR, "\n";
+  }
+
+  print end_table,
+    end_center;
+}
+
+# format a playlist entry and return it's HTML
+sub format_playlist {
+  my $self = shift;
+  my $playlist = shift;
+  my $nb = '&nbsp;';
+  (my $title = $playlist) =~ s/\.m3u$//;
+  $title =~ s/\s/$nb/og;
+  my $url = escape($playlist) . '?play=1';
+
+  return p(a({-href => $url},
+             img({-src => $self->playlist_icon,
+                  -align => 'ABSMIDDLE',
+                  -class => 'subdir',
+                  -alt => 'Playlist',
+                  -border => 0}))
+           . $nb .
+           a({-href => $url},
+             font({-class => 'subdirectory'},
+                  $title)));
+}
+
 # This generates the link for help
 sub get_help {
   my $self = shift;
@@ -487,6 +587,15 @@ sub list_subdirs {
   $self->subdir_list_top($subdirs);
   $self->subdir_list($subdirs);
   $self->subdir_list_bottom($subdirs);
+}
+
+# this is called to display the playlists within the current directory
+sub list_playlists {
+  my $self = shift;
+  my $playlists = shift; # arrayref
+  $self->playlist_list_top($playlists);
+  $self->playlist_list($playlists);
+  $self->playlist_list_bottom($playlists);
 }
 
 # this is called to display the MP3 files within the current directory
@@ -614,18 +723,23 @@ sub read_directory {
   my $self      = shift;
   my $dir       = shift;
 
-  my (@directories,%seen,%mp3s);
+  my (@directories,%seen,%mp3s,@playlists);
 
   opendir D,$dir or return;
   while (defined(my $d = readdir(D))) {
     next if $self->skip_directory($d);
     my $mime = $self->r->lookup_file("$dir/$d")->content_type;
+
     push(@directories,$d) if !$seen{$d}++ && $mime eq DIR_MAGIC_TYPE;
+
+    # .m3u files should be configured as audio/playlist MIME types in your apache .conf file
+    push(@playlists,$d) if $mime =~ m!^audio/(playlist|x-mpegurl|mpegurl)$!;
+
     next unless $mime eq 'audio/mpeg';
     next unless $mp3s{$d} = $self->fetch_info("$dir/$d");
   }
   closedir D;
-  return \(@directories,%mp3s);
+  return \(@directories,%mp3s,@playlists);
 }
 
 
@@ -711,6 +825,12 @@ sub write_cache {
   my ($file,$data) = @_;
   return unless my $cache = $self->cache_dir;
   my $cache_file = "$cache$file";
+
+  # some checks and untaint
+  return if $cache_file =~ m!/\.\./!; # no relative path tricks
+  $cache_file =~ m!^(/.+)$! or return;
+  $cache_file = $1;
+
   my $dirname = dirname($cache_file);
   -d $dirname || eval{mkpath($dirname)} || return;
   if (my $c = Apache::File->new(">$cache_file")) {
@@ -791,6 +911,11 @@ sub stream_ok {
   shift->r->dir_config('AllowStream') !~ /$NO/oi;
 }
 
+# return true if playing locally is allowed
+sub playlocal_ok {
+  shift->r->dir_config('AllowPlayLocally') =~ /$YES/oi;
+}
+
 # return true if we should check that the client can accomodate streaming
 sub check_stream_client {
   shift->r->dir_config('CheckStreamClient') =~ /$YES/oi;
@@ -837,12 +962,14 @@ sub cache_dir    {
 
 # columns to display
 sub subdir_columns {shift->r->dir_config('SubdirColumns') || SUBDIRCOLUMNS  }
+sub playlist_columns {shift->r->dir_config('PlaylistColumns') || PLAYLISTCOLUMNS }
 
 # various configuration variables
 sub default_dir  { shift->r->dir_config('BaseDir') || BASE_DIR  }
 sub stylesheet   { shift->get_dir('Stylesheet', STYLESHEET)     }
 sub parent_icon  { shift->get_dir('ParentIcon',PARENTICON)      }
 sub cd_list_icon { shift->get_dir('DirectoryIcon',CDLISTICON)   }
+sub playlist_icon { shift->get_dir('PlaylistIcon',PLAYLISTICON)  }
 sub song_icon    { shift->get_dir('SongIcon',SONGICON)          }
 sub arrow_icon   { shift->get_dir('ArrowIcon',ARROWICON)        }
 sub help_url     { shift->get_dir('HelpURL',HELPURL)  }
@@ -905,6 +1032,17 @@ sub skip_directory {
   undef;
 }
 
+# Checks if the requesting client is on the same machine as the server.
+# If it is, then it points the playlist at the physical file, which
+# allows the player to fast forward, pause, etc.
+sub is_local {
+  my $self = shift;
+  my $r = $self->r;
+  my ($serverport,$serveraddr) = sockaddr_in($r->connection->local_addr);
+  my ($remoteport,$remoteaddr) = sockaddr_in($r->connection->remote_addr);
+  return $serveraddr eq $remoteaddr;
+}
+
 1;
 
 # SAVED CODE:
@@ -930,7 +1068,8 @@ Apache::MP3 - Generate streamable directories of MP3 files
 =head1 SYNOPSIS
 
  # httpd.conf or srm.conf
- AddType audio/mpeg    mp3 MP3
+ AddType audio/mpeg     mp3 MP3
+ AddType audio/playlist m3u M3U
 
  # httpd.conf or access.conf
  <Location /songs>
@@ -980,6 +1119,7 @@ Apache must be configured to recognize the mp3 and MP3 extensions as
 MIME type audio/mpeg.  Add the following to httpd.conf or srm.conf:
 
  AddType audio/mpeg mp3 MP3
+ AddType audio/playlist m3u M3U
 
 =item 3. Install icons and stylesheet
 
@@ -1029,6 +1169,18 @@ hierarchically by artist and/or album name.
 If you place a file named "cover.jpg" in any of the directories, that
 image will be displayed at the top of the directory listing.  You can
 use this to display cover art.
+
+If you place a list of .mp3 file names in a file with the .m3u
+extension, it will be treated as a playlist and displayed to the user
+with a distinctive icon.  Selecting the playlist icon will download
+the playlist and stream its contents.  The playlist must contain
+relative file names, but may refer to subdirectories, as in this
+example:
+
+  # file: folk_favorites.m3u
+  Never_a_Moment_s_Thought_v2.mp3
+  Peter Paul & Mary - Leaving On A Jet Plane.mp3
+  Simon and Garfunkel/Simon And Garfunkel - April Come She Will.mp3
 
 =item 7. Set up an information cache directory (optional)
 
@@ -1081,6 +1233,7 @@ Table 1: Configuration Variables
  GENERAL OPTIONS
  AllowDownload	       yes|no		yes
  AllowStream	       yes|no		yes
+ AllowPlayLocally      yes|no           yes
  CheckStreamClient     yes|no		no
  ReadMP3Info	       yes|no		yes
  StreamTimeout         integer          0
@@ -1096,6 +1249,7 @@ Table 1: Configuration Variables
  CoverImage            filename         cover.jpg
  DescriptionFormat     string           -see below-
  DirectoryIcon	       URL		cd_icon_small.gif
+ PlaylistIcon          URL              playlist.gif
  Fields                list             title,artist,duration,bitrate
  HomeLabel	       string		"Home"
  LongList	       integer		10
@@ -1125,6 +1279,15 @@ default is "yes".
 If you set AllowStream to "no", users will not be able to stream songs
 or generate playlists.  I am not sure why one would want this feature,
 but it is included for completeness.  The default is "yes."
+
+=item AllowPlayLocally I<yes|no>
+
+If you set AllowPlayLocally to "yes", then the playlists generated by
+the module will point to the physical files when handling requests
+from a user that happens to be working on the same machine.  This is
+more efficient, and allows the user to pause playback, fast forward,
+and so on.  Otherwise, the module will treat local users and remote
+users the same.  The default is "no".
 
 =item CheckStreamClient I<yes|no>
 
@@ -1270,6 +1433,11 @@ Table 2: I<DescriptionFormat> Field Codes
 Set the icon displayed next to subdirectories in directory listings,
 "cd_icon_small.gif" by default.
 
+=item PlaylistIcon I<URL>
+
+Set the icon displayed next to playlists in the playlist listings,
+"playlist.gif" by default.
+
 =item Fields I<title,artist,duration,bitrate>
 
 Specify what MP3 information fields to display in the song listing.
@@ -1336,6 +1504,10 @@ list, "sound.gif" by default.
 
 The number of columns in which to display subdirectories (the small
 "CD icons").  Default 3.
+
+=item PlaylistColumns I<integer>
+
+The number of columns in which to display playlists. Default 3.
 
 =item Stylesheet I<URL>
 
@@ -1517,6 +1689,19 @@ study it alongside a representative HTML page:
          subdir_list_bottom()  # does nothing
          ------------------------------------------------------------
 
+    list_playlists()
+
+         playlist_list_top()
+         ------------------------------------------------------------
+         <CD Playlists (6)>
+
+         playlist_list()
+               <cdicon> <title>   <cdicon> <title>  <cdicon> <title>
+               <cdicon> <title>   <cdicon> <title>  <cdicon> <title>
+
+         playlist_list_bottom()  # does nothing
+         ------------------------------------------------------------
+
     list_mp3s()
          mp3_list_top()
          ------------------------------------------------------------
@@ -1561,6 +1746,11 @@ key "r".  You should not have to modify this method.
 
 Return the stored request object.
 
+=item $boolean = $mp3->is_local()
+
+Returns true if the requesting client is on the same machine as the
+server.
+
 =item $response_code = $mp3->run()
 
 This is the method that interprets the CGI parameters and dispatches
@@ -1588,7 +1778,7 @@ the requested file and returns an Apche response code.  It checks
 whether streaming is allowed and then passes the request on to
 send_stream().
 
--item $mp3->send_playlist($urls,$shuffle)
+=item $mp3->send_playlist($urls,$shuffle)
 
 This method generates a playlist that is sent to the browser.  It is
 called from various places.  C<$urls> is an array reference containing 
@@ -1610,6 +1800,27 @@ This method sorts the hashref of MP3 files returned from find_mp3s(),
 returning an array.  The implementation of this method in Apache::MP3
 sorts by physical file name only.  Apache::MP3::Sorted has a more
 sophisticated implementation.
+
+=item @mp3s = $mp3->load_playlist($playlist)
+
+This method loads a playlist file (.m3u) from disk and returns a
+list of MP3 files contained in the playlist.
+
+=item $mp3->playlist_list_bottom($playlists)
+
+This method generates the footer at the bottom of the list
+of playlists given by C<$playlists>. Currently it does nothing.
+
+=item $mp3->playlist_list($playlists)
+
+This method displays the playlists given by C<$playlists> in a nicely
+formatted table.
+
+=item $html = $mp3->format_playlist($playlist)
+
+This method formats the indicated playlist by creating a fragment of
+HTML containing the playlist icon, the stream links and the playlist
+name. It returns a HTML fragment used by playlist_list().
 
 =item $response_code = $mp3->list_directory($dir)
 
@@ -1641,7 +1852,7 @@ including the module attribution and help information.
 
 This method generates the heading at the top of the list of
 subdirectories.  C<$directories> is an arrayref containing the
-subdirectories to list.
+subdirectories to display.
 
 =item $mp3->subdir_list_bottom($directories)
 
@@ -1675,6 +1886,11 @@ of the page.
 This is the top-level subroutine for listing subdirectories (the part
 of the page in which the little CD icons appears).  C<$subdirectories>
 is an array reference containing the subdirectories to display
+
+=item $mp3->list_playlists($playlists)
+
+This is the top-level subroutine for listing playlists. C<$playlists>
+is an array reference containing the playlists to display.
 
 =item $mp3->list_mp3s($mp3s)
 
@@ -1845,6 +2061,7 @@ be:
                      hierarchy (no longer used)
  cd_icon        URI for the big CD icon printed in the upper left corner
  cd_list_icon   URI for the little CD icons in the subdirectory listing
+ playlist_icon  URI for the playlist icon
  song_icon	URI for the music note icons printed for each MP3 file
  arrow_icon	URI for the arrow used in the navigation bar
  help_url	URI of the document to display when user asks for help

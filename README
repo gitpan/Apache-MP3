@@ -34,6 +34,7 @@ Apache must be configured to recognize the mp3 and MP3 extensions as
 MIME type audio/mpeg.  Add the following to httpd.conf or srm.conf:
 
  AddType audio/mpeg mp3 MP3
+ AddType audio/playlist m3u M3U
 
 3. Install icons and stylesheet
 
@@ -47,7 +48,7 @@ You may change the location of this directory by setting the
 I<BaseDir> configuration variable.  See the I<Customizing> section for
 more details.
 
-4. Set Apache::MP3 or Apache::MP3::Sorted as handler for MP3 directory
+4. Set Apache::MP3 to be the handler for the MP3 directory
 
 In httpd.conf or access.conf, create a E<lt>LocationE<gt> or
 E<lt>DirectoryE<gt> section, and make Apache::MP3 the handler for this
@@ -61,21 +62,40 @@ directory where you will be storing song files:
 
 If you would prefer an MP3 file listing that allows the user to sort
 it in various ways, set the handler to use the Apache::MP3::Sorted
-subclass instead.  This is recommended
+subclass instead.  A further elaboration is Apache::MP3::Playlist,
+which uses cookies to manage a persistent playlist for the user.
 
 5. Load MP3::Info in the Perl Startup file (optional)
 
 For the purposes of faster startup and memory efficiency, you may load
-the MP3::Info module at server startup time.
+the MP3::Info module at server startup time.  If you have a mod_perl
+"startup" file, enter these lines:
+
+  use MP3::Info;
+  use Apache::MP3;
 
 6. Set up MP3 directory
 
-Create a directory in the web server document tree that will
-contain the MP3 files to be served.  The module recognizes and handles
-subdirectories appropriately.  I suggest organizing directories by
-artist and or CD title.  For directories containing multiple tracks
-from the same CD, proceed each mp3 file with the track number.  This
-will ensure that the directory listing sorts in the right order.
+Create a directory in the web server document tree that will contain
+the MP3 files to be served.  The module recognizes and handles
+subdirectories appropriately.  I suggest organizing directories
+hierarchically by artist and/or album name.
+
+If you place a file named "cover.jpg" in any of the directories, that
+image will be displayed at the top of the directory listing.  You can
+use this to display cover art.
+
+If you place a list of .mp3 file names in a file with the .m3u
+extension, it will be treated as a playlist and displayed to the user
+with a distinctive icon.  Selecting the playlist icon will download
+the playlist and stream its contents.  The playlist must contain
+relative file names, but may refer to subdirectories, as in this
+example:
+
+  # file: folk_favorites.m3u
+  Never_a_Moment_s_Thought_v2.mp3
+  Peter Paul & Mary - Leaving On A Jet Plane.mp3
+  Simon and Garfunkel/Simon And Garfunkel - April Come She Will.mp3
 
 7. Set up an information cache directory (optional)
 
@@ -85,24 +105,62 @@ consuming, particularly when recursively generating playlists across
 multiple directories.  To speed up this process, Apache::MP3 has the
 ability cache MP3 file information in a separate directory area.
 
-To configure this, create a directory that the Web server sill have
-write access to, such as /usr/tmp/mp3_cache, and add this
-configuration variable to the <Location> directive:
+To configure this, choose a directory that the Web server has write
+access for, such as /usr/tmp.  Then add a configuration variable like
+the following to the <Location> directive:
 
  PerlSetVar  CacheDir       /usr/tmp/mp3_cache
 
-If the designated does not exist, Apache::MP3 will attempt to create
-it, limited of course by the Web server's privileges.
+If the designated directory does not exist, Apache::MP3 will attempt
+to create it, limited of course by the Web server's privileges.  You
+may need to create the mp3_cache directory yourself if /usr/tmp is not 
+world writable.
 
+TESTING IT
 
-Open up the MP3 URL in your favorite browser.  If things don't seem to
-be working, checking the server error log for informative messages.
+Open up the MP3 URL in your favorite browser.  You should be able to
+see directory listings, and download and stream your songs.  If things
+don't seem to be working, checking the server error log for messages.
 
 Run "perldoc Apache::MP3" for more configuration information.
 
 CHANGES
 
 Revision history for Perl extension Apache::MP3.
+
+2.14 Sat Dec 30 23:10:32 EST 2000
+	- Fixed documentation to indicate that AddType requires dots before the
+		.mp3 and .MP3 extension names.
+	- Made the cache writing taint safe.
+	- Fixed generation of extended playlists to work with earlier versions
+		of WinAmp.
+	- Added playlist and local streaming patches kindly provided by
+		Jamie O'Shaughnessy.
+	- Fixed display of directory path links when the current directory has same
+		name as a parent directory.
+
+2.13 Thu Nov 30 12:17:31 EST 2000
+	- Patch from Jeffrey Sumler to prevent faults when streaming files containing
+		regular expression metacharacters
+	- Fix to prevent entire directory from being streamed when the directory
+		has same name as the desired MP3 file (Jeffrey Sumler identified problem).
+
+2.12 Tue Nov 21 08:39:15 EST 2000
+	** IMPORTANT NOTE **
+	I have normalized field names and added some new fields.  In particular, "kbps" has
+	been renamed "bitrate".  If you are using the mp3info caching feature, please delete 
+	your cache directory so that the new fields are correctly cached
+
+	-Check for invalid songs in playlist and refuse to play them.
+	-Added Jeffrey Seifert's patch for cover art.  You can now place a file named
+		"cover.jpg" in an album subdirectory and have it appear next to
+		the album's name.
+	-Added Chris Nandor's patch for Accept-Range so that certain players can
+		fetch selected portions of the song (in theory at least).
+	-Added Kee Hinkley's extended playlist patch, which allows WinAmp (and other players?)
+		to display the title and duration of the song in the playlist.
+	-Added Gary Johnston's patch which fixes truncated songs when streaming from a
+		Windows server (the old binmode() trap).
 
 2.11 Sat Sep  9 18:04:55 EDT 2000
 	Added Tim Ayer's patches for sorting.  Now can sort playlists 

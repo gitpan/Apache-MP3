@@ -1,5 +1,5 @@
 package Apache::MP3::Playlist;
-# $Id: Playlist.pm,v 1.5 2000/09/10 21:38:23 lstein Exp $
+# $Id: Playlist.pm,v 1.1.1.1 2000/12/30 00:26:13 lstein Exp $
 # generates playlists in cookies
 
 use strict;
@@ -12,7 +12,7 @@ use Apache::MP3::Sorted;
 
 @ISA = 'Apache::MP3::Sorted';
 $VERSION = 1.03;
-# $Id: Playlist.pm,v 1.5 2000/09/10 21:38:23 lstein Exp $
+# $Id: Playlist.pm,v 1.1.1.1 2000/12/30 00:26:13 lstein Exp $
 
 #sub handler {
 #  __PACKAGE__->handle_request(@_);

@@ -1,5 +1,5 @@
 package Apache::MP3::Sorted;
-# $Id: Sorted.pm,v 1.3 2000/09/09 21:56:37 lstein Exp $
+# $Id: Sorted.pm,v 1.1.1.1 2000/12/30 00:26:13 lstein Exp $
 # example of how to subclass Apache::MP3 in order to provide
 # control over the sorting of the rows of the MP3 table
 
