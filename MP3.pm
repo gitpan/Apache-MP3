@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.14 2002/01/06 20:36:09 lstein Exp $
+# $Id: MP3.pm,v 1.12 2002/05/31 01:09:41 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE HTTP_NOT_MODIFIED);
@@ -10,7 +10,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.22';
+$VERSION = '2.26';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -76,6 +76,11 @@ sub r { return shift->{r} }
 sub run {
   my $self = shift;
   my $r = $self->r;
+
+  # check that we aren't running under PerlSetupEnv Off
+  if ($ENV{MOD_PERL} && !$ENV{SCRIPT_FILENAME}) {
+     warn "CGI.pm cannot run with 'PerlSetupEnv Off', please set it to On";
+  }
 
   # generate directory listing
   return $self->process_directory($r->filename) 
@@ -240,6 +245,7 @@ sub send_playlist {
   $r->print("#EXTM3U$CRLF");
   my $stream_parms = $self->stream_parms;
   foreach (@$urls) {
+    $self->path_escape(\$_);
     my $subr = $r->lookup_uri($_) or next;
     my $file = $subr->filename;
     my $type = $subr->content_type;
@@ -258,7 +264,6 @@ sub send_playlist {
 		' (',$data->{album},')',
 		$CRLF);
     }
-    $self->path_escape(\$_);
     if ($local) {
       $r->print($file,$CRLF);
     } else {
@@ -852,6 +857,20 @@ sub read_mpeg {
   my $duration = sprintf "%dm %2.2ds", $info->{MM}, $info->{SS};
   my $seconds  = ($info->{MM} * 60) + $info->{SS};
 
+  my $dir = dirname ($file);
+  if (basename ($file) =~ /^track-([0-9]+).mp3$/ && open INDEX, "<$dir/INDEX") {
+      my $track_num = $1;
+      while (my $line = <INDEX>) {
+	  if ($line =~ /^DTITLE=(.+)$/) {
+	      ($artist, $album) = split /\//, $1;
+	  }
+ 	  if ($line =~ /^TTITLE([0-9]+)=(.+)$/ && $track_num == $1+1) {
+ 	      $title = $2;
+ 	  }
+      }
+      close INDEX;
+  }
+
   %$data =(
 	   title        => $title || '',
 	   artist       => $artist || ''   ,
@@ -894,7 +913,7 @@ sub read_vorbis {
 	    comment => $comments->{comment} || $comments->{COMMENT} || '',
 	    year => $comments->{year}       || $comments->{YEAR}    || '',
 	    track => $comments->{tracknumber} || $comments->{TRACKNUMBER} || '',
-	    bitrate => $info->bitrate_nominal/1000,
+	    bitrate => $ogg->bitrate/1000,
 	    samplerate => $info->rate,
 	    seconds => $sec,
 	    min => int $sec/60,
@@ -1009,13 +1028,27 @@ sub send_stream {
     and $range = $1
     and seek($fh,$range,0);
 
+  # Look for a descriptive file that has the same base as the mp3 file.
+  # Also look for various index files.
+  my $icyurl = $self->stream_base(1);
+  my $base   = basename($file);
+  $base =~ s/\.\w+$//;  # get rid of suffix
+  my $dirbase  = dirname($file);
+  my $urlbase  = dirname($url);
+  foreach ("$base.html","$base.htm","index.html","index.htm") {
+    my $file = "$dirbase/$_";
+    if (-r $file) {
+      $icyurl .= "$urlbase/$_";
+      last;
+    }
+  }
 
   $r->print("ICY ". ($range ? 206 : 200) ." OK$CRLF");
   $r->print("icy-notice1:<BR>This stream requires a shoutcast/icecast compatible player.<BR>$CRLF");
   $r->print("icy-notice2:Namp! (Apache::MP3)<BR>$CRLF");
   $r->print("icy-name:$description$CRLF");
   $r->print("icy-genre:$genre$CRLF");
-  $r->print("icy-url:",$self->stream_base(1),$CRLF);
+  $r->print("icy-url: $icyurl$CRLF");
   $r->print("icy-pub:1$CRLF");
   $r->print("icy-br:$bitrate$CRLF");
   $r->print("Accept-Ranges: bytes$CRLF");
@@ -1050,7 +1083,7 @@ sub send_stream {
 sub open_file {
   my $self = shift;
   my $file = shift;
-  return IO::File->new($file);
+  return IO::File->new($file,O_RDONLY);
 }
 
 #################################################
@@ -1142,13 +1175,14 @@ sub cd_list_icon  {
   my $image = $self->r->dir_config('CoverImageSmall') || COVERIMAGESMALL;
   my $directory_specific_icon = $self->r->filename."/$subdir/$image";
   return -e $directory_specific_icon 
-    ? $self->r->uri . "/$subdir/$image"
+    ? $self->r->uri . sprintf("/%s/%s", escape($subdir), $image)
     : $self->get_dir('DirectoryIcon',CDLISTICON);
 }
 sub playlist_icon {
   my $self = shift; 
   my $image = $self->r->dir_config('PlaylistImage') || PLAYLISTIMAGE;
   my $directory_specific_icon = $self->r->filename."/$image";
+warn $directory_specific_icon;
   return -e $directory_specific_icon
     ? $self->r->uri . "/$image"
     : $self->get_dir('PlaylistIcon',PLAYLISTICON);
@@ -1178,27 +1212,25 @@ sub missing_comment {
 sub description {
   my $self = shift;
   my $data = shift;
+  my $description;
   my $format = $self->r->dir_config('DescriptionFormat');
   if ($format) {
-    (my $description = $format) =~ s{%([atfglncrdmsqS%])}
+    ($description = $format) =~ s{%([atfglncrdmsqS%])}
       {$1 eq '%' ? '%'
 	 : $data->{$FORMAT_FIELDS{$1}}
        }gxe;
-    return $description;
   } else {
-    my $description = $data->{title} || basename($data->{filename},@suffix);
+    $description = $data->{title} || basename($data->{filename},@suffix);
     $description .= " - $data->{artist}" if $data->{artist};
     $description .= " ($data->{album})"  if $data->{album};
-    return $description;
   }
+  return $description;
 }
 
 sub stream_base {
   my $self = shift;
   my $suppress_auth = shift;
   my $r = $self->r;
-  my $basename = $r->dir_config('StreamBase');
-  return $basename if $basename;
 
   my $auth_info;
   # the check for auth_name() prevents an annoying message in
@@ -1211,13 +1243,14 @@ sub stream_base {
     }
   }
 
-  my $vhost = $r->hostname;
-  unless ($vhost) {
-    $vhost = $r->server->server_hostname;
-    $vhost .= ':' . $r->get_server_port unless $r->get_server_port == 80;
+  if ((my $basename = $r->dir_config('StreamBase')) && !$self->is_localnet()) {
+    $basename =~ s!http://!http://$auth_info! if $auth_info;
+    return $basename;
   }
-  $basename = "http://${auth_info}${vhost}";
-  return $basename;
+
+  my $vhost = $r->hostname || $r->server->server_hostname;
+  $vhost .= ':' . $r->get_server_port unless $r->get_server_port == 80;
+  return "http://${auth_info}${vhost}";
 }
 
 
@@ -1241,6 +1274,21 @@ sub is_local {
   my ($serverport,$serveraddr) = sockaddr_in($r->connection->local_addr);
   my ($remoteport,$remoteaddr) = sockaddr_in($r->connection->remote_addr);
   return $serveraddr eq $remoteaddr;
+}
+
+# Check if the requesting client is on the local network, as defined by
+# the LocalNet directive
+sub is_localnet {
+  my $self = shift;
+  return 1 if $self->is_local;  # d'uh
+  my @local = split /\s+/,$self->r->dir_config('LocalNet') or return;
+
+  my $remote_ip = $self->r->connection->remote_ip . '.';
+  foreach (@local) {
+    $_ .= '.' unless /\.$/;
+    return 1 if index($remote_ip,$_) == 0;
+  }
+  return;
 }
 
 1;
@@ -1296,7 +1344,7 @@ A B<demo version> can be browsed at http://www.modperl.com/Songs/.
 =head1 DESCRIPTION
 
 This module makes it possible to browse a directory hierarchy
-containing MP3, Ogg Vorbis, or Wave files, sort them on various
+containing MP3, Ogg Vorbis, or Wav files, sort them on various
 fields, download them, stream them to an MP3 decoder like WinAmp, and
 construct playlists.  The display is configurable and subclassable.
 
@@ -1429,6 +1477,17 @@ contents.  The playlist syntax is as in this example:
   Length2=-1
   Version=2
 
+Apache::MP3 permits you to directly use CDDB data without embedding it
+in ID3 tags.  To take advantage of this feature, your MP3 files should
+have file names of this form: track-XX.mp3.  Then, place a CDDB index
+file in the same directory as the tracks and name it INDEX.  For
+example, you might execute this command
+
+  cddbcmd cddb read soundtrack cb115c11 > INDEX
+
+to create an INDEX file for the Mulholland Drive soundtrack.  The
+32-bit disc ID can be obtained with a program such as cd-discid.
+
 =item 7. Set up an information cache directory (optional)
 
 In order to generate its MP3 listing, Apache::MP3 must open each sound
@@ -1485,11 +1544,12 @@ Table 1: Configuration Variables
  ReadMP3Info	       yes|no		yes
  StreamTimeout         integer          0
 
- DIRECTORY OPTOINS
+ DIRECTORY OPTIONS
  BaseDir	       URL		/apache_mp3
  CacheDir              path             -none-
  HelpURL               URL              apache_mp3_help.gif:614x498
  StreamBase            URL              -none-
+ LocalNet              subnet           -none-
 
  DISPLAY OPTIONS
  ArrowIcon	       URL		right_arrow.gif
@@ -1608,9 +1668,8 @@ would like.  Volunteers to make a better help page are welcomed!
 
 A URL to use as the base for streaming.  The default is to use the
 same host for both directory listings and streaming.  This may be of
-use for transparent reverse proxies or for situations in which you
-want one server to generate the index, and the other to service the
-stream requests.
+use when running behind a firewall and the web server can't figure out
+the correct address for the playlist automatically.
 
 Example:
 
@@ -1624,6 +1683,24 @@ placed in the playlist will be
 The path part of the URL is simply appended to StreamBase.  If you
 want to do more sophisticated URL processing, use I<mod_rewrite> or
 equivalent.
+
+=item LocalNet I<URL>
+
+This configuration variable is used in conjunction with B<StreamBase>
+to disable B<StreamBase> for clients on the local network.  This is
+needed for firewall configurations in which the web server is accessed
+by one address & port by hosts behind the firewall, and by another
+address & port by hosts outside the firewall.
+
+The argument is a dotted subnet address, or a space-delimited list of
+subnets.  For example:
+
+  PerlSetVar LocalNet "192.168.1 192.168.2 127.0.0.1"
+
+Address matching is done by matching the address from left to right,
+with an implied dot added to the end of the subnet address.  More
+complex subnet matching using netmasks is desirable, but not
+implemented.
 
 =back
 
@@ -2358,11 +2435,19 @@ be:
  parent_icon()	URI to the icon to use to move up in directory
                      hierarchy (no longer used)
  cd_icon        URI for the big CD icon printed in the upper left corner
- cd_list_icon   URI for the little CD icons in the subdirectory listing
- playlist_icon  URI for the playlist icon
  song_icon	URI for the music note icons printed for each MP3 file
  arrow_icon	URI for the arrow used in the navigation bar
  help_url	URI of the document to display when user asks for help
+
+The following methods return the values of their corresponding
+configuration variables, resolved against the current directory, but if
+that fails, against the base directory.  This is useful for customizing
+the appearance icons on a per-directory basis.  For example, I like my
+directories containing shoutcast playlists to appear differently than
+my directories containing mp3 and m3u files.
+
+ cd_list_icon   URI for the little CD icons in the subdirectory listing
+ playlist_icon  URI for the playlist icon
 
 =item $boolean = $mp3->skip_directory($dir)
 

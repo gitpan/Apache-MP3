@@ -1,5 +1,5 @@
 package Apache::MP3::Playlist;
-# $Id: Playlist.pm,v 1.3 2001/11/10 02:00:49 lstein Exp $
+# $Id: Playlist.pm,v 1.2 2002/01/27 15:40:23 lstein Exp $
 # generates playlists in cookies
 
 use strict;
@@ -12,7 +12,7 @@ use Apache::MP3::Sorted;
 
 @ISA = 'Apache::MP3::Sorted';
 $VERSION = 1.03;
-# $Id: Playlist.pm,v 1.3 2001/11/10 02:00:49 lstein Exp $
+# $Id: Playlist.pm,v 1.2 2002/01/27 15:40:23 lstein Exp $
 
 #sub handler {
 #  __PACKAGE__->handle_request(@_);
@@ -151,7 +151,7 @@ sub lookup_descriptions {
     next unless my $sub  = $r->lookup_uri($song);
     next unless my $file = $sub->filename;
     next unless -r $file;
-    next unless my $info = $self->fetch_info($file);
+    next unless my $info = $self->fetch_info($file,$sub->content_type);
     $d{$song} = " $info->{description}";
   }
   return \%d;

@@ -1,4 +1,4 @@
-Apache::MP3 version 2.x
+Namp! Version 2.X
 
 This module takes a hierarchy of directories containing MP3, Ogg
 Vorbis, or Wav audio files and presents it as a browsable song library
@@ -17,8 +17,7 @@ A DEMO is available at http://www.modperl.com/Songs.  In this demo,
 stream time is limited to 30 seconds in order to avoid copyright
 infringement.
 
-See the "screenshots" directory for some pictures of Apache::MP3 in
-action.
+See the "screenshots" directory for some pictures of Namp! in action.
 
 See below for CHANGES.
 
@@ -47,13 +46,15 @@ This module uses a set of icons and a cascading stylesheet to generate
 its song listings.  By default, the module expects to find them at the
 url /apache_mp3.  Create a directory named apache_mp3 in your document
 root, and copy into it the contents of the F<apache_mp3> directory
-from the Apache-MP3 distribution.
+from the Namp! distribution.
 
 You may change the location of this directory by setting the
 I<BaseDir> configuration variable.  See the I<Customizing> section for
 more details.
 
 4. Set Apache::MP3 to be the handler for the songs directory
+
+The core of Namp! is a perl module called Apache::MP3.
 
 In httpd.conf or access.conf, create a E<lt>LocationE<gt> or
 E<lt>DirectoryE<gt> section, and make Apache::MP3 the handler for this
@@ -131,102 +132,7 @@ Run "perldoc Apache::MP3" for more configuration information.
 
 CHANGES
 
-Revision history for Perl extension Apache::MP3.
-
-2.16 Mon Apr 30 22:31:17 EDT 2001
-	- Added Apache::MP3::Resample, which provides dynamic downsampling
-		for people with slower connections.
-
-2.15 Mon Jan  1 22:20:24 EST 2001
-	- Fixed security bug which allowed people to bypass the AllowDownload setting.
-	- Made "AllowDownload no" compatible with cover art.
-
-2.14 Sat Dec 30 23:10:32 EST 2000
-	- Fixed documentation to indicate that AddType requires dots before the
-		.mp3 and .MP3 extension names.
-	- Made the cache writing taint safe.
-	- Fixed generation of extended playlists to work with earlier versions
-		of WinAmp.
-	- Added playlist and local streaming patches kindly provided by
-		Jamie O'Shaughnessy.
-	- Fixed display of directory path links when the current directory has same
-		name as a parent directory.
-
-2.13 Thu Nov 30 12:17:31 EST 2000
-	- Patch from Jeffrey Sumler to prevent faults when streaming files containing
-		regular expression metacharacters
-	- Fix to prevent entire directory from being streamed when the directory
-		has same name as the desired MP3 file (Jeffrey Sumler identified problem).
-
-2.12 Tue Nov 21 08:39:15 EST 2000
-	** IMPORTANT NOTE **
-	I have normalized field names and added some new fields.  In particular, "kbps" has
-	been renamed "bitrate".  If you are using the mp3info caching feature, please delete 
-	your cache directory so that the new fields are correctly cached
-
-	-Check for invalid songs in playlist and refuse to play them.
-	-Added Jeffrey Seifert's patch for cover art.  You can now place a file named
-		"cover.jpg" in an album subdirectory and have it appear next to
-		the album's name.
-	-Added Chris Nandor's patch for Accept-Range so that certain players can
-		fetch selected portions of the song (in theory at least).
-	-Added Kee Hinkley's extended playlist patch, which allows WinAmp (and other players?)
-		to display the title and duration of the song in the playlist.
-	-Added Gary Johnston's patch which fixes truncated songs when streaming from a
-		Windows server (the old binmode() trap).
-
-2.11 Sat Sep  9 18:04:55 EDT 2000
-	Added Tim Ayer's patches for sorting.  Now can sort playlists 
-		on multiple fields (nice!)
-	Detect when playlist cookie is full, alert user, and suppress 
-		further attempts to add to playlist.
-	Documentation fixes.
-
-2.10 Sun Sep  3 20:29:41 MET DST 2000
-	Ooops.  Playlist.pm was inadvertently left out; now it's back in.
-	Fixed divide by zero error on corrupt MP3 files.
-
-2.08 Wed Aug 30 22:39:38 EDT 2000
-	Added playlist functionality.
-	Temporarily changed form POST method to GET to work around an (apparent) bug
-		in mod_perl's ability to redirect from a POST to a GET (Apache hangs
-		after returning from handler).  It "used to work" just fine.
-	Suppressed appearance of authentication information
-		XMMS/WinAmp scrolling marquee
-
-2.07 Sat Aug 26 13:49:30 EDT 2000
-	Fixed caching routines so that information about failed mp3_info()
-		lookups is cached as well.
-
-2.06 Fri Aug 25 23:39:00 EDT 2000
-	Fixed bug in [stream] button that caused module to fail on
-		directories containing parentheses and other RE
-		metacharacters
-
-2.05 Fri Aug 25 08:10:04 EDT 2000
-	Changed directory layout to get faster loading
-	Now supports HTTP authentication (passwords)
-	Supports directories with spaces and funny characters
-
-2.04 Tue Aug 22 04:38:07 PDT 2000
-	Completely revamped to make more object oriented
-	Apahce::MP3::Sorted subclass
-	Added help page
-	
-2.02 Sun May 28 12:18:37 2000
-	More information on MP3::Info segfaults
-	Added installation directions to README
-
-2.01 Sat May 27 00:32:18 2000
-	Added information on a workaround for random segfaults related to MP3::Info
-
-2.00  Sat May 27 00:00:09 2000
-	- original version; created by h2xs 1.20 with options
-		-A -X -f -n Apache-MP3
-
-1.00  February 2000
-      Old defunct version.
-
+See Changes.
 
 AUTHOR
 

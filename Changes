@@ -1,3 +1,25 @@
+2.26 Wed Apr 17 11:03:24 EDT 2002
+	- Added patch from Tom Hughes to correctly escape paths in the playlist.
+	- Added patch from Tom Hughes to fetch the average bitrate for VBR Ogg
+		files rather than the nominal bitrate (which is meaningless).
+
+2.25 Tue Apr  9 12:35:44 EDT 2002
+	- Added patch from Clemens Schrimpe to handle diacritical marks in
+		CD icon names.
+	- Added patch from John Regehr to get CDDB information from an 
+	external index file, if present.
+        - Put warning in the error_log if PerlSetupEnv has been set to off
+        (thanks to Stas Bekman and Eric Hammond)  
+
+2.24 Sun Jan 27 08:42:58 MST 2002
+	- Playlists work again.  This was broken in version 2.22 when
+		support for non-MP3 playlists added.
+
+2.23 Thu Jan 24 18:44:42 EST 2002
+	- Fixed problem with not being able to stream from virtual hosts.
+	- Documented issues relating to not finding lame in the PATH when
+		downsampling.
+
 2.22 Sun Jan  6 15:25:07 EST 2002
 	- Folded in Devin Carraway's <apache-modmp3@devin.com> patches
 		for Ogg Vorbis Support.
