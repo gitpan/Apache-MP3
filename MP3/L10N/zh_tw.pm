@@ -85,6 +85,15 @@ sub language_tag {__PACKAGE__->SUPER::language_tag}
  "= Stream this song" => "= 將目前歌曲以串流方式播放",
  "= Sort by field" => "= 以某項欄位排序",
 
+ # Playlist.pm
+ "Add to Playlist" => "外[入播放清單",
+ "Add All to Playlist" => "全部外[入播放清單",
+ "Current Playlist" => "現行播放清單",
+ "Clear All" => "全部清除",
+ "Clear Selected" => "清除選取範圍",
+ "Playlist contains [quant,_1,song,songs]." => "播放清單中共有 [quant,_1,首,首] 歌曲。",
+ "Your playlist is now full. No more songs can be added." => "播放清單已滿，無法新增歌曲。",
+
 );
 
 1;

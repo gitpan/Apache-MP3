@@ -6,7 +6,7 @@ WriteMakefile(
     AUTHOR              => 'Lincoln Stein <lstein@cshl.org>',
     ABSTRACT            => 'mod_perl class for generating browsable MP3 directory lists',
     ABSTRACT_FROM       => 'MP3.pm',
-    VERSION_FROM	=> 'MP3.pm', # finds $VERSION
+    VERSION             => '3.04',
     PREREQ_PM		=> {
 			    MP3::Info  => 0.8,
 			    Apache     => 1.14,
@@ -15,3 +15,5 @@ WriteMakefile(
 			    Locale::Maketext => 1.03,
 			   }, # e.g., Module::Name => 1.1
 );
+
+1;

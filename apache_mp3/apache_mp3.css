@@ -19,6 +19,10 @@ H2 {
   /* font-style: italic; */
 }
 
+TABLE {
+  width: 100%;
+}
+
 TR.title {
   /* font-family: sans-serif; */
   background-color: #FFE89B;
@@ -33,9 +37,13 @@ TR.normal {
 
 TR.highlight {
   /* font-family: sans-serif; */
-  background-color: rgb(200,255,255);
+  background-color: #EEEEEE;
   padding: 0;
   margin: 0;
+}
+
+TD {
+  align: left;
 }
 
 .directory {
