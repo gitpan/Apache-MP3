@@ -1,9 +1,10 @@
 Revision history for Perl extension Apache::MP3.
 
-1.0   Mon March 20
-	- release 1
+1.00  February 2000
+      Old defunct version.
 
-0.01  Mon Mar 20 07:50:22 2000
+2.00  Sat May 27 00:00:09 2000
 	- original version; created by h2xs 1.20 with options
-		-cf -n Apache::MP3
+		-A -X -f -n Apache-MP3
+
 

@@ -1,0 +1,33 @@
+BODY {
+   background-color: white
+}
+H1 {
+   alignment: center;
+   color: blue;
+}
+
+H2 {
+   font-style: italic;
+}   
+
+TR.title {
+   background-color: #FFE89B;
+}
+
+TD.normal {
+    font-family: sans-serif;
+    background-color: white;
+    padding: 0;
+    margin: 0;
+}
+
+TD.highlight {
+    font-family: sans-serif;
+    background-color: rgb(200,255,255);
+    padding: 0;
+    margin: 0;
+}
+
+INPUT {
+    background-color: white;
+}

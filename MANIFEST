@@ -1,6 +1,13 @@
 Changes
 MANIFEST
-README
 MP3.pm
 Makefile.PL
-test.pl
+README
+icons/apache_mp3.css
+icons/back.gif
+icons/cd_icon.gif
+icons/cd_icon_small.gif
+icons/sound.gif
+screenshots/cd_listing.gif
+screenshots/mp3_listing.gif
+screenshots/streaming.gif
