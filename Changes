@@ -7,4 +7,5 @@ Revision history for Perl extension Apache::MP3.
 	- original version; created by h2xs 1.20 with options
 		-A -X -f -n Apache-MP3
 
-
+2.01 Sat May 27 00:32:18 2000
+	Added information on a workaround for random segfaults related to MP3::Info

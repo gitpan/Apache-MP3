@@ -6,7 +6,7 @@ use MP3::Info;
 use CGI qw/:standard escape *table *TR/;
 use vars '$VERSION';
 
-$VERSION = '2.00';
+$VERSION = '2.01';
 
 # defaults:
 use constant ICON_DIR   => '/apache_mp3';
@@ -509,6 +509,23 @@ directory name:
 Again, the capitalization of "Play Selected" counts.
 
 =back
+
+=head1 BUGS
+
+I sometimes see random segfaults in the httpd children when using this
+module.  The problem appears to be related to the MP3::Info module.
+Loading MP3::Info at server startup time using the mod_perl
+perl.startup script seems to make the problem go away.  This is an
+excerpt from my perl.startup file:
+ 
+ #!/usr/local/bin/perl
+ ...
+ use Apache::Registry ();
+ use Apache::Constants();
+ use MP3::Info();
+ use CGI();
+ use CGI::Carp ();
+
 
 =head1 SEE ALSO
 

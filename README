@@ -1,4 +1,4 @@
-Apache::MP3 version 2.0
+Apache::MP3 version 2.0x
 
 This module takes a hierarchy of directories containing MP3 files and
 presents it as a browsable song library for streaming over the web.
@@ -16,4 +16,4 @@ See the "screenshots" directory for some pictures of Apache::MP3 in
 action.
 
 Lincoln Stein, <lstein@cshl.org>
-5/25/2000
+5/27/2000
