@@ -1,15 +1,21 @@
 Revision history for Perl extension Apache::MP3.
 
-1.00  February 2000
-      Old defunct version.
-
-2.00  Sat May 27 00:00:09 2000
-	- original version; created by h2xs 1.20 with options
-		-A -X -f -n Apache-MP3
+2.04 Tue Aug 22 04:38:07 PDT 2000
+	Completely revamped to make more object oriented
+	Apahce::MP3::Sorted subclass
+	Added help page
+	
+2.02 Sun May 28 12:18:37 2000
+	More information on MP3::Info segfaults
+	Added installation directions to README
 
 2.01 Sat May 27 00:32:18 2000
 	Added information on a workaround for random segfaults related to MP3::Info
 
-2.02 Sun May 28 12:18:37 2000
-	More information on MP3::Info segfaults
-	Added installation directions to README
+2.00  Sat May 27 00:00:09 2000
+	- original version; created by h2xs 1.20 with options
+		-A -X -f -n Apache-MP3
+1.00  February 2000
+      Old defunct version.
+
+
