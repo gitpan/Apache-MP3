@@ -67,6 +67,7 @@ sub process_playlist {
 
   if (param('Play Selected') and param('playlist')) {
     my @uris = param('file') or return HTTP_NO_CONTENT;
+    warn "uris = ",join "\n",@uris;
     return $self->send_playlist(\@uris);
   }
 
@@ -86,7 +87,7 @@ sub process_playlist {
     tied(%{$r->err_headers_out})->add('Set-Cookie' => $c);
     (my $uri = $r->uri) =~ s!playlist\.m3u$!!;
     $self->path_escape(\$uri);
-    $r->err_header_out(Location => $uri);
+    $r->header_out(Location => $uri);
     return REDIRECT;
   }
 
@@ -108,7 +109,7 @@ sub directory_bottom {
       a({-name=>'playlist'}),
       table({-width=>'100%',-border=>1},
 	    Tr({-class=>'playlist'},
-	       td(
+	       td({-class=>'playlist'},
 		  h3('Current Playlist'),
 		  start_form(-action=>"${uri}playlist.m3u",-method=>'GET'),
 		  checkbox_group(-class=>'playlist',

@@ -11,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.19';
+$VERSION = '2.20';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -52,7 +52,7 @@ my $YES = '^(yes|true)$';  # regular expression
 sub handler ($$) {
   my $class = shift;
   my $obj = $class->new(@_) or die "Can't create object: $!";
-  $obj->run();
+  return $obj->run();
 }
 
 sub new {
@@ -217,11 +217,13 @@ sub send_playlist {
   $r->print("#EXTM3U$CRLF");
   my $stream_parms = $self->stream_parms;
   foreach (@$urls) {
-    my $uri = quotemeta(dirname($r->uri));
-    my $dir = dirname($r->filename);
-    my $file = $_;
-    $file =~ s,$uri/,,;
-    $file = "$dir/$file";
+#    my $uri = quotemeta(dirname($r->uri));
+#    my $dir = dirname($r->filename);
+#    my $file = $_;
+#    $file =~ s,$uri/,,;
+#    $file = "$dir/$file";
+    my $subr = $r->lookup_uri($_) or next;
+    my $file = $subr->filename;
     my $info = $self->fetch_info($file);
     $r->print('#EXTINF:' , $info->{seconds} , 
 	      ',', $info->{title}, 

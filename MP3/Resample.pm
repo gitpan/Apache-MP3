@@ -10,6 +10,7 @@ use Apache::File;
 use CGI qw(:standard *table *TR *td escape);
 use CGI::Cookie;
 use Apache::MP3::Playlist;
+
 @ISA = 'Apache::MP3::Playlist';
 
 use constant ENCODE => qq(lame --mp3input %b - <%f);
