@@ -10,7 +10,7 @@ use CGI qw/:standard *TR param/;
 use vars qw(@ISA $VERSION);
 @ISA = 'Apache::MP3';
 
-$VERSION = 2.00;
+$VERSION = 2.01;
 
 # to choose the right type of sort for each of the mp3 fields
 my %sort_modes = (
@@ -26,12 +26,14 @@ my %sort_modes = (
 		  bitrate     => [qw(bitrate      numeric)],
 		  filename    => [qw(filename     alpha)],
 		  kbps        => [qw(kbps         numeric)],
+		  samplerate  => [qw(samplerate   numeric)],
 		  track       => [qw(track        numeric)],
+		  year        => [qw(year         numeric)],
 		 );
 
-sub handler {
-  __PACKAGE__->handle_request(@_);
-}
+#sub handler {
+#  __PACKAGE__->handle_request(@_);
+#}
 
 sub sort_fields {
   my $self       = shift;
@@ -92,12 +94,11 @@ sub sort_mp3s {
 
 sub mp3_table_header {
   my $self = shift;
-  my $url = url(-absolute=>1,-path_info=>1);
   my @fields;
 
   foreach ($self->fields) {
     my $sort = param('sort') eq lc($_)  ? lc("-$_") : lc($_);
-    push @fields,a({-href=>"$url?sort=$sort"},ucfirst($_));
+    push @fields,a({-href=>"?sort=$sort"},ucfirst($_));
   }
 
   print TR({-class=>'title',-align=>'LEFT'},
@@ -175,17 +176,18 @@ The following are valid fields:
 
     Field        Description
 
-    title        The title of the song
-    artist       The artist
     album	 The album
-    track	 The track number
-    genre        The genre
-    description	 Description in the form "title - artist (album)"
+    artist       The artist
+    bitrate      Streaming rate of song in kbps
     comment      The comment field
+    description	 Description, as controlled by DescriptionFormat
     duration     Duration of the song in hour, minute, second format
-    seconds      Duration of the song in seconds
-    kbps         Streaming rate of song in kilobits/sec
     filename	 The physical name of the .mp3 file
+    genre        The genre
+    samplerate   Sample rate, in KHz
+    seconds      Duration of the song in seconds
+    title        The title of the song
+    track	 The track number
 
 Field names are case insensitive.
 

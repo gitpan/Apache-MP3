@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.11 2000/09/09 22:07:48 lstein Exp $
+# $Id: MP3.pm,v 1.12 2000/09/10 21:38:22 lstein Exp $
  
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
@@ -10,7 +10,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.11';
+$VERSION = '2.12';
 
 my $CRLF = "\015\012";
 
@@ -22,21 +22,34 @@ use constant PLAYICON     => 'play.gif';
 use constant SHUFFLEICON  => 'shuffle.gif';
 use constant CDICON       => 'cd_icon.gif';
 use constant CDLISTICON   => 'cd_icon_small.gif';
+use constant COVERIMAGE   => 'cover.jpg';
 use constant SONGICON     => 'sound.gif';
 use constant ARROWICON    => 'right_arrow.gif';
 use constant SUBDIRCOLUMNS => 3;
 use constant HELPURL      => 'apache_mp3_help.gif:614x498';
+my %FORMAT_FIELDS = (
+		     a => 'artist',
+		     c => 'comment',
+		     d => 'duration',
+		     f => 'filename',
+		     g => 'genre',
+		     l => 'album',
+		     m => 'min',
+		     n => 'track',
+		     q => 'samplerate',
+		     r => 'bitrate',
+		     s => 'sec',
+		     S => 'seconds',
+		     t => 'title',
+		     y => 'year',
+		     );
 
 my $NO  = '^(no|false)$';  # regular expression
 my $YES = '^(yes|true)$';  # regular expression
 
-sub handler {
-  __PACKAGE__->handle_request(@_);
-}
-
-sub handle_request {
-  my $pack = shift;
-  my $obj = $pack->new(@_) or die "Can't create object: $!";
+sub handler ($$) {
+  my $class = shift;
+  my $obj = $class->new(@_) or die "Can't create object: $!";
   $obj->run();
 }
 
@@ -146,7 +159,7 @@ sub stream {
     $r->log_reason('AllowStream forbidden');
     return FORBIDDEN;
   }
-  
+
   if ($self->check_stream_client and !$self->is_stream_client) {
     my $useragent = $r->header_in('User-Agent');
     $r->log_reason("CheckStreamClient is true and $useragent is not a streaming client");
@@ -167,8 +180,33 @@ sub send_playlist {
   $r->send_http_header('audio/mpegurl');
   return OK if $r->header_only;
 
+    # The extended format is:
+    #	#EXTM3U
+    #	#EXTINF:seconds,artist - title - album
+    #	URL
+    # but apparently you can override with this
+    #	#EXTART:Britney Spears
+    #	#EXTALB:Oops!.. I Did It Again
+    #	#EXTTIT:Something or other
+    # and there doesn't seem to be a way to escape the -, so that's safer
+    # in theory, but if you send both it seems to ignore all but the EXTINF
+    # and there's no way to send seconds without it anyway, so we'll just do
+    # that.
+
   $self->shuffle($urls) if $shuffle;
+  $r->print("#EXTM3U$CRLF");
   foreach (@$urls) {
+    my $uri = dirname($r->uri);
+    my $dir = dirname($r->filename);
+    my $file = $_;
+    $file =~ s,$uri/,,;
+    $file = "$dir/$file";
+    my $info = $self->fetch_info($file);
+    $r->print('#EXTINF:' , $info->{seconds} , ',', $info->{artist},
+	      ' - ', $info->{title}, ' - ', $info->{album}, $CRLF);
+    $r->print('#EXTART:' , $info->{artist}, $CRLF);
+    $r->print('#EXTALB:' , $info->{album}, $CRLF);
+    $r->print('#EXTTIT:' , $info->{title}, $CRLF);
     $self->path_escape(\$_);
     $r->print ("$base$_?stream=1$CRLF");
   }
@@ -253,7 +291,7 @@ sub list_directory {
 # print the HTML at the top of a directory listing
 sub directory_top {
   my $self = shift;
-  my $dir  = shift; # actually not used
+  my $dir  = shift;
   my $title = $self->r->uri;
   print start_html(-title => $title,
 		   -style => {-src=>$self->stylesheet});
@@ -267,7 +305,7 @@ sub directory_top {
   print table(
 	      Tr({-align=>'LEFT'},
 		 td(a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-			 img({-src => $self->cd_icon, -align=>'MIDDLE',
+			 img({-src => $self->cd_icon($dir), -align=>'MIDDLE',
 			      -alt=> 'Play All',-border=>0})),
 		       td($links))),
 
@@ -605,37 +643,36 @@ sub fetch_info {
   }
 
   my %data = $self->read_cache($file);
-  return \%data if %data;
 
-  return unless my $info = get_mp3info($file);
+  unless (%data and keys(%data) == keys(%FORMAT_FIELDS)) {
+    return unless my $info = get_mp3info($file);
 
-  my $tag  = get_mp3tag($file);
-  my ($title,$artist,$album,$year,$comment,$genre,$track) = 
-    @{$tag}{qw(TITLE ARTIST ALBUM YEAR COMMENT GENRE TRACKNUM)} if $tag;
-  my $duration = sprintf "%dm %2.2ds", $info->{MM}, $info->{SS};
-  my $seconds  = ($info->{MM} * 60) + $info->{SS};
-  my $kbps     = "$info->{BITRATE} kbps";
+    my $tag  = get_mp3tag($file);
+    my ($title,$artist,$album,$year,$comment,$genre,$track) = 
+      @{$tag}{qw(TITLE ARTIST ALBUM YEAR COMMENT GENRE TRACKNUM)} if $tag;
+    my $duration = sprintf "%dm %2.2ds", $info->{MM}, $info->{SS};
+    my $seconds  = ($info->{MM} * 60) + $info->{SS};
+    my $base = basename($file,".mp3",".MP3",".mpeg",".MPEG");
 
-  my $base = basename($file,".mp3",".MP3",".mpeg",".MPEG");
-  my $title_string = $title || $base;
+    %data =(title        => $title || $base,
+	    artist       => $artist,
+	    duration     => $duration,
+	    genre        => $genre,
+	    album        => $album,
+	    comment      => $comment,
+	    min          => $info->{MM},
+	    sec          => $info->{SS},
+	    seconds      => $seconds,
+	    track        => $track || '',
+	    year         => $year,
+	    bitrate      => $info->{BITRATE},
+	    samplerate   => $info->{FREQUENCY},
+	    filename     => basename($file),
+	   );
+    $self->write_cache($file => \%data);
+  }
 
-  $title_string .= " - $artist" if $artist;
-  $title_string .= " ($album)"  if $album;
-
-  %data =(title        => $title || $base,
-	  artist       => $artist,
-	  duration     => $duration,
-	  kbps         => $kbps,
-	  genre        => $genre,
-	  album        => $album,
-	  comment      => $comment,
-	  seconds      => $seconds,
-	  description  => $title_string,
-	  track        => $track || '',
-	  bitrate      => $info->{BITRATE},
-	  filename     => basename($file),
-	 );
-  $self->write_cache($file => \%data);
+  $data{description} = $self->description(\%data);
   return \%data;
 }
 
@@ -687,22 +724,27 @@ sub send_stream {
   my $self = shift;
   my ($file,$url) = @_;
   my $r = $self->r;
-  
+
   my $info = $self->fetch_info($file);
   return DECLINED unless $info;  # not a legit mp3 file?
   open (FILE,$file) || return DECLINED;
-  
-  my $title = $info->{description};
+  binmode(FILE);  # to prevent DOS text-mode foolishness
+
+  my $size = -s $file;
+  my $description = $info->{description};
   my $genre = $info->{genre} || 'unknown';
-  
+
   $r->print("ICY 200 OK$CRLF");
   $r->print("icy-notice1:<BR>This stream requires a shoutcast/icecast compatible player.<BR>$CRLF");
   $r->print("icy-notice2:Apache::MP3 module<BR>$CRLF");
-  $r->print("icy-name:$title$CRLF");
+  $r->print("icy-name:$description$CRLF");
   $r->print("icy-genre:$genre$CRLF");
   $r->print("icy-url:",$self->stream_base(1),$CRLF);
   $r->print("icy-pub:1$CRLF");
   $r->print("icy-br:$info->{BITRATE}$CRLF");
+  $r->print("Accept-Ranges: bytes$CRLF");
+  $r->print("Content-Length: $size$CRLF");
+  $r->print("Content-Type: audio/mpeg$CRLF");
   $r->print("$CRLF");
   return OK if $r->header_only;
 
@@ -710,7 +752,7 @@ sub send_stream {
     my $seconds  = $info->{seconds};
     $seconds ||= 60;  # shouldn't happen
     my $fraction = $timeout/$seconds;
-    my $bytes    = int($fraction * -s $file);
+    my $bytes    = int($fraction * $size);
     while ($bytes > 0) {
       my $data;
       my $b = read(FILE,$data,2048) || last;
@@ -787,7 +829,7 @@ sub path_style {  # style for the path to parent directories
 }
 
 # where is our cache directory (if any)
-sub cache_dir    { 
+sub cache_dir    {
   my $self = shift;
   return unless my $dir  = $self->r->dir_config('CacheDir');
   return $self->r->server_root_relative($dir);
@@ -800,11 +842,39 @@ sub subdir_columns {shift->r->dir_config('SubdirColumns') || SUBDIRCOLUMNS  }
 sub default_dir  { shift->r->dir_config('BaseDir') || BASE_DIR  }
 sub stylesheet   { shift->get_dir('Stylesheet', STYLESHEET)     }
 sub parent_icon  { shift->get_dir('ParentIcon',PARENTICON)      }
-sub cd_icon      { shift->get_dir('TitleIcon',CDICON)           }
 sub cd_list_icon { shift->get_dir('DirectoryIcon',CDLISTICON)   }
 sub song_icon    { shift->get_dir('SongIcon',SONGICON)          }
 sub arrow_icon   { shift->get_dir('ArrowIcon',ARROWICON)        }
 sub help_url     { shift->get_dir('HelpURL',HELPURL)  }
+sub cd_icon {
+  my $self = shift;
+  my $dir = shift;
+  my $coverimg = $self->r->dir_config('CoverImage') || COVERIMAGE;
+  if (-e "$dir/$coverimg") {
+    $coverimg;
+  } else {
+    $self->get_dir('TitleIcon',CDICON);
+  }
+}
+# create description string
+sub description {
+  my $self = shift;
+  my $data = shift;
+  my $format = $self->r->dir_config('DescriptionFormat');
+  if ($format) {
+    (my $description = $format) =~ s{%([atfglncrdmsqS%])}
+      {$1 eq '%' ? '%'
+	 : $data->{$FORMAT_FIELDS{$1}}
+       }gxe;
+    return $description;
+  } else {
+    my $description = $data->{title} || basename($data->{filename},".mp3",".MP3",".mpeg",".MPEG");
+    $description .= " - $data->{artist}" if $data->{artist};
+    $description .= " ($data->{album})"  if $data->{album};
+    return $description;
+  }
+}
+
 sub stream_base {
   my $self = shift;
   my $suppress_auth = shift;
@@ -836,6 +906,21 @@ sub skip_directory {
 }
 
 1;
+
+# SAVED CODE:
+# This was the old way I used to do create and run objects.  The advantage was that
+# you did not have to stop and start the server in order to see changes.
+# The disadvantage was that it was a bit more work to write subclasses.
+# sub handler {
+#   __PACKAGE__->handle_request(@_);
+# }
+
+# sub handle_request {
+#   my $pack = shift;
+#   my $obj = $pack->new(@_) or die "Can't create object: $!";
+#   $obj->run();
+# }
+
 __END__
 
 =head1 NAME
@@ -908,8 +993,7 @@ You may change the location of this directory by setting the
 I<BaseDir> configuration variable.  See the I<Customizing> section for
 more details.
 
-=item 4. Set Apache::MP3 (or one of its subclasses) to be handler for
-MP3 directory
+=item 4. Set Apache::MP3 to be the handler for the MP3 directory
 
 In httpd.conf or access.conf, create a E<lt>LocationE<gt> or
 E<lt>DirectoryE<gt> section, and make Apache::MP3 the handler for this
@@ -929,16 +1013,22 @@ which uses cookies to manage a persistent playlist for the user.
 =item 5. Load MP3::Info in the Perl Startup file (optional)
 
 For the purposes of faster startup and memory efficiency, you may load
-the MP3::Info module at server startup time.
+the MP3::Info module at server startup time.  If you have a mod_perl
+"startup" file, enter these lines:
+
+  use MP3::Info;
+  use Apache::MP3;
 
 =item 6. Set up MP3 directory
 
-Create a directory in the web server document tree that will
-contain the MP3 files to be served.  The module recognizes and handles
-subdirectories appropriately.  I suggest organizing directories by
-artist and or CD title.  For directories containing multiple tracks
-from the same CD, proceed each mp3 file with the track number.  This
-will ensure that the directory listing sorts in the right order.
+Create a directory in the web server document tree that will contain
+the MP3 files to be served.  The module recognizes and handles
+subdirectories appropriately.  I suggest organizing directories
+hierarchically by artist and/or album name.
+
+If you place a file named "cover.jpg" in any of the directories, that
+image will be displayed at the top of the directory listing.  You can
+use this to display cover art.
 
 =item 7. Set up an information cache directory (optional)
 
@@ -948,19 +1038,22 @@ consuming, particularly when recursively generating playlists across
 multiple directories.  To speed up this process, Apache::MP3 has the
 ability cache MP3 file information in a separate directory area.
 
-To configure this, create a directory that the Web server sill have
-write access to, such as /usr/tmp/mp3_cache, and add this
-configuration variable to the <Location> directive:
+To configure this, choose a directory that the Web server has write
+access for, such as /usr/tmp.  Then add a configuration variable like
+the following to the <Location> directive:
 
  PerlSetVar  CacheDir       /usr/tmp/mp3_cache
 
-If the designated does not exist, Apache::MP3 will attempt to create
-it, limited of course by the Web server's privileges.
+If the designated directory does not exist, Apache::MP3 will attempt
+to create it, limited of course by the Web server's privileges.  You
+may need to create the mp3_cache directory yourself if /usr/tmp is not 
+world writable.
 
 =back
 
-Open up the MP3 URL in your favorite browser.  If things don't seem to
-be working, checking the server error log for informative messages.
+Open up the MP3 URL in your favorite browser.  You should be able to
+see directory listings, and download and stream your songs.  If things
+don't seem to be working, checking the server error log for messages.
 
 =head1 CUSTOMIZING
 
@@ -971,43 +1064,48 @@ Apache::MP3::Sorted.
 
 =head2 Per-directory configuration variables
 
-Per-directory variables are set by PerlSetVar directives in the
+Per-directory variables are set by I<PerlSetVar> directives in the
 Apache::MP3 E<lt>LocationE<gt> or E<lt>DirectoryE<gt> section.  For
 example, to change the icon displayed next to subdirectories of MP3s,
-you would use PerlSetVar to change the DirectoryIcon variable:
+you would use I<PerlSetVar> to change the I<DirectoryIcon> variable:
 
   PerlSetVar DirectoryIcon big_cd.gif
 
-This table summarizes the configuration variables.  A more detailed
-explanation of each follows.
+This following table summarizes the configuration variables.  A more
+detailed explanation of each follows in the subsequent sections.
 
- CONFIGURATION VARIABLES FOR PerlSetVar
+Table 1: Configuration Variables
 
  Name                  Value	        Default
  ----                  -----            -------
-
+ GENERAL OPTIONS
  AllowDownload	       yes|no		yes
  AllowStream	       yes|no		yes
  CheckStreamClient     yes|no		no
  ReadMP3Info	       yes|no		yes
+ StreamTimeout         integer          0
 
- StreamTimout          integer          0
- SubdirColumns	       integer		3
- LongList	       integer		10
- Fields                list             title,artist,duration,bitrate
- PathStyle             Staircase|Arrows Staircase
-
+ DIRECTORY OPTOINS
  BaseDir	       URL		/apache_mp3
  CacheDir              path             -none-
- HomeLabel	       string		"Home"
+ HelpURL               URL              apache_mp3_help.gif:614x498
  StreamBase            URL              -none-
 
+ DISPLAY OPTIONS
+ ArrowIcon	       URL		right_arrow.gif
+ CoverImage            filename         cover.jpg
+ DescriptionFormat     string           -see below-
+ DirectoryIcon	       URL		cd_icon_small.gif
+ Fields                list             title,artist,duration,bitrate
+ HomeLabel	       string		"Home"
+ LongList	       integer		10
+ PathStyle             Staircase|Arrows Staircase
+ SongIcon	       URL		sound.gif
+ SubdirColumns	       integer		3
  Stylesheet	       URL		apache_mp3.css
  TitleIcon	       URL		cd_icon.gif
- DirectoryIcon	       URL		cd_icon_small.gif
- SongIcon	       URL		sound.gif
- ArrowIcon	       URL		right_arrow.gif
- ParentIcon	       URL		back.gif    # defunct
+
+=head2 General Configuration Variables
 
 =over 4
 
@@ -1051,60 +1149,19 @@ set to the physical filename of the MP3 file.
 
 For demo mode, you can specify a stream timeout in seconds.
 Apache::MP3 will cease streaming the file after the time specified.
-Because this feature does not take into account TCP-buffered song
-data, the actual music may not stop playing until five or 10 seconds
-later.
+Because this feature uses the average bitrate of the song, it may be
+off by a second or two when streaming variable bitrate MP3s.
 
-=item SubdirColumns I<integer>
+=back
 
-The number of columns in which to display subdirectories (the small
-"CD icons").  Default 3.
+=head2 Configuration Variables Affecting Paths and Directories
 
-=item LongList I<integer>
-
-The number of lines in the list of MP3 files after which it is
-considered "long".  In long lists, the control buttons are placed at
-the top as well as at the bottom of the table.  Defaults to 10.
-
-=item Fields I<title,artist,duration,bitrate>
-
-Specify what MP3 information fields to display in the song listing.
-This should be a list delimited by commas, "|" symbols, or any other
-non-word character.
-
-The following are valid fields:
-
-    Field        Description
-
-    title        The title of the song
-    artist       The artist
-    album	 The album
-    track	 The track number
-    genre        The genre
-    description	 Description in the form "title - artist (album)"
-    comment      The comment field
-    duration     Duration of the song in hour, minute, second format
-    seconds      Duration of the song in seconds
-    kbps         Streaming rate of song in kilobits/sec
-    filename	 The physical name of the .mp3 file
-
-Note that MP3 rip and encoding software differ in what fields they
-capture and the exact format of such fields as the title and album.
-Field names are case insensitive.
-
-=item PathStyle I<Staircase|Arrows>
-
-Controls the style with which the parent directories are displayed.
-The options are "Staircase" (the default), which creates a
-staircase-style display (each child directory is on a new line and
-offset by 0.3 em).  The other is "Arrows", in which the entire
-directory list is on a single line and separated by graphic arrows.
-Try them both and choose the one you prefer.
+=over 4
 
 =item BaseDir I<URL>
 
 The B<BaseDir> variable sets the URL in which Apache::MP3 will look
-for its icons and stylesheet.  You may use an absolutea local or
+for its icons and stylesheet.  You may use any absolute local or
 remote URL. Relative URLs are not accepted.
 
 The default is "/apache_mp3."
@@ -1115,6 +1172,171 @@ This variable sets the directory path for Apache::MP3's cache of MP3
 file information.  This must be an absolute path in the physical file
 system and be writable by Apache.
 
+=item HelpURL I<URL:widthxheight>
+
+The URL of the page to display when the user presses the "Quick Help
+Summary" link at the bottom of the page.  In the current
+implementation, the module pops up a plain window containing a
+marked-up GIF of a typical page. You can control the size of this page
+by adding ":WxH" to the end of the URL, where W and H are the width
+and height, respectively.
+
+Default: apache_mp3_help.gif:614x498
+
+Note: I prepared this image on an airplane, so it isn't as clean as I
+would like.  Volunteers to make a better help page are welcomed!
+
+=item StreamBase I<URL>
+
+A URL to use as the base for streaming.  The default is to use the
+same host for both directory listings and streaming.  This may be of
+use for transparent reverse proxies or for situations in which you
+want one server to generate the index, and the other to service the
+stream requests.
+
+Example:
+
+If the song requested is http://www.foobar.com/Songs/Madonna_live.m3u?stream=1
+
+and B<StreamBase> is set to I<http://streamer.myhost.net>, then the URL
+placed in the playlist will be
+
+ http://streamer.myhost.net/Songs/Madonna_live.m3u?stream=1
+
+The path part of the URL is simply appended to StreamBase.  If you
+want to do more sophisticated URL processing, use I<mod_rewrite> or
+equivalent.
+
+=back
+
+=head2 Configuration Variables Affecting the Visual Display
+
+=over 4
+
+=item ArrowIcon I<URL>
+
+Set the icon used for the arrows displayed between the components of
+the directory path at the top of the directory listing.
+
+=item CoverImage I<filename>
+
+Before displaying a subdirectory, Apache::MP3 will look inside the
+directory for an image file.  This feature allows you to display
+digitized album covers or other customized icons.  The default is
+"cover.jpg", but the image file name can be changed with
+I<CoverImage>.  If the file does not exist, the image specified by
+I<TitleIcon> will be displayed instead.
+
+=item DescriptionFormat I<string>
+
+The "Description" field, which is used both in the Description column
+of the directory index and in the metadata sent to the player during
+streaming, has a default format of I<title>-I<artist>-I<album>.  The
+description is constructed in such a way that the hyphen is omitted if
+the corresponding field of the song's MP3 tag is empty.
+
+You can customize this behavior by providing a I<DescriptionFormat>
+string.  These strings combine constant characters with %x format
+codes in much the way that sprintf() does.  For example, the directive
+shown below will create descriptions similar to I<[Madonna] Like a
+Virgin (1980)>.
+
+  PerlSetVar DescriptionFormat "[%a] %t (%y)"
+
+The full list of format codes follows:
+
+Table 2: I<DescriptionFormat> Field Codes
+
+  Code         Description
+  ----         -----------
+
+  %a	       Artist name
+  %c	       Comment
+  %d	       Duration, in format 00m00s
+  %f	       Name of physical file (minus path)
+  %g	       Genre
+  %l	       Album name
+  %m	       Minutes portion of duration, usually used with %s
+  %n	       Track number
+  %q	       Sample rate, in kHz
+  %r	       Bitrate, in kbps
+  %s	       Seconds portion of duration, usually used with %m
+  %S	       Duration, expressed as total seconds
+  %t	       Title
+  %y	       Year
+
+=item DirectoryIcon I<URL>
+
+Set the icon displayed next to subdirectories in directory listings,
+"cd_icon_small.gif" by default.
+
+=item Fields I<title,artist,duration,bitrate>
+
+Specify what MP3 information fields to display in the song listing.
+This should be a list delimited by commas, "|" symbols, or any other
+non-word character.
+
+The following are valid fields:
+
+Table 3: Field Names For use with the I<Fields> Configuration Variable 
+
+    Field        Description
+    -----        -----------
+
+    album	 The album
+    artist       The artist
+    bitrate      The bitrate, expressed in kbps
+    comment      The comment field
+    duration     Duration of the song in hour, minute, second format
+    description	 Description as specified by DescriptionFormat
+    filename	 The physical name of the .mp3 file
+    genre        The genre
+    min          The minutes portion of the duration
+    seconds      Total duration of the song in seconds
+    sec          The seconds portion of the duration
+    samplerate   The sampling rate, in KHz
+    title        The title of the song
+    track	 The track number
+    year         The album year
+
+Note that MP3 rip and encoding software differ in what fields they
+capture and the exact format of such fields as the title and album.
+Field names are case insensitive.
+
+Previous versions of this module used "kbps" instead of "bitrate".
+This has been changed.
+
+=item HomeLabel I<string>
+
+This is the label for the link used to return to the site's home
+page.  You may use plain text or any fragment of HTML, such as an
+<IMG> tag.
+
+=item LongList I<integer>
+
+The number of lines in the list of MP3 files after which it is
+considered "long".  In long lists, the control buttons are placed at
+the top as well as at the bottom of the table.  Defaults to 10.
+
+=item PathStyle I<Staircase|Arrows>
+
+Controls the style with which the parent directories are displayed.
+The options are "Staircase" (the default), which creates a
+staircase-style display (each child directory is on a new line and
+offset by 0.3 em).  The other is "Arrows", in which the entire
+directory list is on a single line and separated by graphic arrows.
+Try them both and choose the one you prefer.
+
+=item SongIcon I<URL>
+
+Set the icon displayed at the beginning of each line of the MP3 file
+list, "sound.gif" by default.
+
+=item SubdirColumns I<integer>
+
+The number of columns in which to display subdirectories (the small
+"CD icons").  Default 3.
+
 =item Stylesheet I<URL>
 
 Set the URL of the cascading stylesheet to use, "apache_mp3.css" by
@@ -1124,66 +1346,10 @@ directory.
 
 =item TitleIcon I<URL>
 
-Set the icon displayed next to the current directory's name,
-"cd_icon.gif" by default.  In this, and the other icon-related
-directives, relative URLs are treated as relative to I<BaseDir>.
-
-The default is "cd_icon.gif".
-
-=item DirectoryIcon I<URL>
-
-Set the icon displayed next to subdirectories in directory listings,
-"cd_icon_small.gif" by default.
-
-=item SongIcon I<URL>
-
-Set the icon displayed at the beginning of each line of the MP3 file
-list, "sound.gif" by default.
-
-=item ArrowIcon I<URL>
-
-Set the icon used for the arrows displayed between the components of
-the directory path at the top of the directory listing.
-
-=item ParentIcon I<URL>
-
-This configuration variable is no longer used, but remains for
-backward compatibility.
-
-=item HomeLabel I<string>
-
-This is the label for the link used to return to the site's home
-page.  You may use plain text or any fragment of HTML, such as an
-<IMG> tag.
-
-=item StreamURL I<URL>
-
-A URL to use as the base for streaming.  The default is to use the
-same host for both directory listings and streaming.  This may be of
-use for transparent reverse proxies.
-
-Example:
-
-If the song requested is http://www.foobar.com/Songs/Madonna_live.m3u?stream=1
-
-and B<StreamURL> is set to I<http://streamer.myhost.net>, then the URL
-placed in the playlist will be
-
- http://streamer.myhost.net/Songs/Madonna_live.m3u?stream=1
-
-A more general rewrite facility is not available, but might be added
-if requested.
-
-=item HelpURL I<URL:widthxheight>
-
-The URL of the page to display when the user presses the "Quick Help
-Summary" link at the bottom of the page.  In the current
-implementation, the module pops up a plain window containing a
-marked-up GIF of a typical page. You can control the size of this page
-by adding ":WxH" to the end of the URL, where W and H are the width
-and height, respectively.  
-
-Default: apache_mp3_help.gif:614x498
+Set the icon displayed next to the current directory's name in the
+absence of a coverimage, "cd_icon.gif" by default.  In this, and the
+other icon-related directives, relative URLs are treated as relative
+to I<BaseDir>.
 
 =back
 
@@ -1192,6 +1358,8 @@ Default: apache_mp3_help.gif:614x498
 You can change the appearance of the page by changing the cascading
 stylesheet that accompanies this module, I<apache_mp3.css>.  The
 following table describes the tags that can be customized:
+
+Table 4: Stylesheet Class Names
 
  Class Name           Description
  ----------           ----------
@@ -1216,25 +1384,20 @@ Apache::MP3::Sorted module illustrates how to do this.
 Briefly, your module should inherit from Apache::MP3 (or
 Apache::MP3::Sorted) either by setting the C<@ISA> package global or,
 in Perl 5.6 and higher, with the C<use base> directive.  Your module
-should define a handler() subroutine that creates a new instance of
-the subclass and immediately calls its handle_request() method.  This
-illustrates the idiom:
+can then override existing methods and define new ones.
 
-  package Apache::MP3::EvenBetter;
-  use strict;
-  use Apache::MP3::Sorted;
-  use base Apache::MP3::Sorted;
+This module uses the I<mod_perl> method invocation syntax for handler
+invocation.  Because of this, if you override the handler() method, be
+sure to give it a prototype of ($$).  If you override new(), be sure
+to place the Apache::Request object in an instance variable named 'r'.
+See the MP3.pm module for details.
 
-  sub handler {
-    __PACKAGE__->handle_request(@_);
-  }
-
-  # new and overridden methods, etc....
-  1;
-
-I decided not to use Apache method handlers for this after I
-discovered that I had to completely stop and relaunch the server every
-time I made a change to the module (even with PerlFreshRestart on).
+One implication of using the method invocation syntax is that the
+Apache::MP3 object is created at server configuration time.  This
+means that you cannot tweak the code and simply restart the server,
+but must formally stop and relaunch the server every time you change
+the code or install a new version.  This disadvantage is balanced by a
+savings in memory consumption and performance.
 
 See I<The Apache::MP3 API> below for more information on overriding
 Apache::MP3 methods.
@@ -1330,7 +1493,7 @@ C<r>, which points at the current request object.  This can be
 retrieved conveniently using the r() method.
 
 Apache::MP3 builds up its directory listing pages in pieces, using a
-hierarchical scheme.  The following diagram summarizes which methods() 
+hierarchical scheme.  The following diagram summarizes which methods
 are responsible for generating the various parts.  It might help to
 study it alongside a representative HTML page:
 
@@ -1384,10 +1547,8 @@ This section lists each of the Apache::MP3 method calls briefly.
 
 =item $response_code = handler($request)
 
-This is a the standard mod_perl handler() subroutine.  It is a simple
-front-end to Apache::MP3->handle_request().  As described above under
-I<Subclassing this Module>, you will need to provide a minimal
-handler() subroutine for each subclass you create.
+This is a the standard mod_perl handler() subroutine.  It creates a
+new Apache::MP3 object, and then invokes its run() method.
 
 =item $mp3 = Apache::MP3->new(@args)
 
@@ -1395,12 +1556,6 @@ This is a constructor.  It stores the passed args in a hash and
 returns a new Apache::MP3 object.  If a single argument is passed it
 assumes that it is an Apache::Request object and stores it under the
 key "r".  You should not have to modify this method.
-
-=item $response_code = Apache::MP3->handle_request(@args)
-
-This is the other constructor.  It calls new() to create a new $mp3
-argument and immediately calls its run() method.  You should not have
-to modify this method.
 
 =item $request = $mp3->r()
 

@@ -1,5 +1,22 @@
 Revision history for Perl extension Apache::MP3.
 
+2.12 Tue Nov 21 08:39:15 EST 2000
+	** IMPORTANT NOTE **
+	I have normalized field names and added some new fields.  In particular, "kbps" has
+	been renamed "bitrate".  If you are using the mp3info caching feature, please delete 
+	your cache directory so that the new fields are correctly cached
+
+	-Check for invalid songs in playlist and refuse to play them.
+	-Added Jeffrey Seifert's patch for cover art.  You can now place a file named
+		"cover.jpg" in an album subdirectory and have it appear next to
+		the album's name.
+	-Added Chris Nandor's patch for Accept-Range so that certain players can
+		fetch selected portions of the song (in theory at least).
+	-Added Kee Hinkley's extended playlist patch, which allows WinAmp (and other players?)
+		to display the title and duration of the song in the playlist.
+	-Added Gary Johnston's patch which fixes truncated songs when streaming from a
+		Windows server (the old binmode() trap).
+
 2.11 Sat Sep  9 18:04:55 EDT 2000
 	Added Tim Ayer's patches for sorting.  Now can sort playlists 
 		on multiple fields (nice!)

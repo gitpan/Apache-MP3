@@ -1,5 +1,5 @@
 package Apache::MP3::Playlist;
-# $Id: Playlist.pm,v 1.4 2000/09/09 22:07:49 lstein Exp $
+# $Id: Playlist.pm,v 1.5 2000/09/10 21:38:23 lstein Exp $
 # generates playlists in cookies
 
 use strict;
@@ -11,12 +11,12 @@ use CGI::Cookie;
 use Apache::MP3::Sorted;
 
 @ISA = 'Apache::MP3::Sorted';
-$VERSION = 1.02;
-# $Id: Playlist.pm,v 1.4 2000/09/09 22:07:49 lstein Exp $
+$VERSION = 1.03;
+# $Id: Playlist.pm,v 1.5 2000/09/10 21:38:23 lstein Exp $
 
-sub handler {
-  __PACKAGE__->handle_request(@_);
-}
+#sub handler {
+#  __PACKAGE__->handle_request(@_);
+#}
 
 sub run {
   my $self = shift;
@@ -102,6 +102,7 @@ sub directory_bottom {
     $self->path_escape(\$uri);
 
     my $descriptions = $self->lookup_descriptions($self->playlist);
+    my @ok = grep { $descriptions->{$_} } $self->playlist;
 
     print
       a({-name=>'playlist'}),
@@ -113,7 +114,7 @@ sub directory_bottom {
 		  checkbox_group(-class=>'playlist',
 				 -name      => 'file',
 				 -linebreak => 1,
-				 -value     => scalar $self->playlist,
+				 -value     => \@ok,
 				 -labels    => $descriptions),
 		  submit(-name=>'Clear All'),
 		  submit(-class=>'playlist',-name=>'Clear Selected'),
@@ -148,6 +149,7 @@ sub lookup_descriptions {
   for my $song (@_) {
     next unless my $sub  = $r->lookup_uri($song);
     next unless my $file = $sub->filename;
+    next unless -r $file;
     next unless my $info = $self->fetch_info($file);
     $d{$song} = " $info->{description}";
   }
@@ -156,7 +158,7 @@ sub lookup_descriptions {
 
 sub directory_top {
   my $self = shift;
-  $self->SUPER::directory_top;
+  $self->SUPER::directory_top(@_);
   my @p = $self->playlist;
   print div({-align=>'CENTER'},
 	    a({-href=>'#playlist',-class=>'playlist'},'Playlist contains',scalar(@p),'songs.'),br,
