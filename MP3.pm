@@ -2,7 +2,7 @@ package Apache::MP3;
  
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
-use Apache::File();
+use Apache::File;
 use MP3::Info;
 use CGI qw/:standard escape *table *TR *blockquote *center *h1/;
 use File::Basename 'dirname','basename';
@@ -11,7 +11,7 @@ use vars '$VERSION','@ISA';
 # @ISA = 'Apache';
 my $CRLF = "\015\012";
 
-$VERSION = '2.04';
+$VERSION = '2.05';
 
 # defaults:
 use constant BASE_DIR     => '/apache_mp3';
@@ -23,7 +23,7 @@ use constant CDICON       => 'cd_icon.gif';
 use constant CDLISTICON   => 'cd_icon_small.gif';
 use constant SONGICON     => 'sound.gif';
 use constant ARROWICON    => 'right_arrow.gif';
-use constant ALBUMCOLUMNS => 3;
+use constant SUBDIRCOLUMNS => 3;
 use constant HELPURL      => 'apache_mp3_help.gif:614x498';
 
 my $NO  = '^(no|false)$';  # regular expression
@@ -51,8 +51,9 @@ sub run {
   my $self = shift;
   my $r = $self->r;
 
-  # generate directory listing
-  return $self->process_directory($r->filename) if -d $r->finfo;
+  # generate directory listing   
+  return $self->process_directory($r->filename) 
+    if -d $r->filename;  # should be $r->finfo, but STILL problems with this
 
   #simple download of file
   return $self->download_file($r->filename) unless param;
@@ -96,7 +97,6 @@ sub run {
   if (param('Play Selected')) {
     return HTTP_NO_CONTENT unless my @files = param('file');
     my $uri = dirname($r->uri);
-    warn "uri = $uri, files = @files";
     $self->send_playlist([map { "$uri/$_" } @files]);
     return OK;
   }
@@ -139,7 +139,7 @@ sub stream {
   my $self = shift;
   my $r = $self->r;
 
-  return DECLINED unless -e $r->finfo;
+  return DECLINED unless -e $r->filename;  # should be $r->finfo
 
   unless ($self->stream_ok) {
     $r->log_reason('AllowStream forbidden');
@@ -161,16 +161,17 @@ sub send_playlist {
   my ($urls,$shuffle) = @_;
   return HTTP_NO_CONTENT unless @$urls;
   my $r = $self->r;
-  my $base = 'http://' . $r->hostname;
-  $base .= ':' . $r->get_server_port 
-    unless $r->get_server_port == 80;
+  my $base = $self->stream_base;
 
   $r->send_http_header('audio/mpegurl');
+  return OK if $r->header_only;
+
   $self->shuffle($urls) if $shuffle;
   foreach (@$urls) {
     s!([^a-zA-Z0-9/.-])!uc sprintf("%%%02x",ord($1))!eg ;
     $r->print ("$base$_?stream=1$CRLF");
   }
+  return OK;
 }
 
 # this searches the current directory for MP3 files and subdirectories
@@ -228,11 +229,12 @@ sub list_directory {
   my $dir  = shift;
   return DECLINED unless my ($directories,$mp3s) = $self->read_directory($dir);
 
-  print header();
+  $self->r->send_http_header('text/html');
+  return OK if $self->r->header_only;
 
   $self->directory_top($dir);
-  $self->list_albums($directories) if @$directories;
-  $self->list_mp3s($mp3s)          if %$mp3s;
+  $self->list_subdirs($directories) if @$directories;
+  $self->list_mp3s($mp3s)           if %$mp3s;
   print hr                         unless %$mp3s;
   $self->directory_bottom($dir);
   return OK;
@@ -262,16 +264,15 @@ sub directory_top {
 	      Tr({-align=>'LEFT'},
 		 td({-colspan=>2},
 		    a({-href=>'./playlist.m3u?Shuffle+All+Recursive=1'},
-		      font({-class=>'albumtitle'},'[Shuffle All]'))
+		      font({-class=>'directory'},'[Shuffle All]'))
 		    .'&nbsp;'.
 		    a({-href=>'./playlist.m3u?Play+All+Recursive=1'},
-		      font({-class=>'albumtitle'},'[Stream All]'))
+		      font({-class=>'directory'},'[Stream All]'))
 		    )
 		),
 	     );
   if (my $t = $self->stream_timeout) {
-    my $range = "$t-".($t+10);
-    print p(strong('Note:'),"In this demo, streaming is limited to $range seconds.\n");
+    print p(strong('Note:'),"In this demo, streaming is limited to approximately $t seconds.\n");
   }
 }
 
@@ -282,16 +283,17 @@ sub generate_navpath_staircase {
   my $home =  $self->home_label;
 
   my @components = split '/',$uri;
+  unshift @components,'' unless @components;
   my ($path,$links);
   my $current_style = "line-height: 1.2; font-weight: bold; color: red;";
   my $parent_style  = "line-height: 1.2; font-weight: bold;";
   my $indent = 0;
 
   foreach (@components) {
-    $path .= "$_/";
+    $path .= escape($_) ."/";
     if ($_ eq $components[-1]) {
       $links .= div({-style=>"text-indent: ${indent}em; $current_style"},
-		    font({-size=>'+1'},$_))."\n";
+		    font({-size=>'+1'},$_ || $home))."\n";
     } else {
       my $l = a({-href=>$path},$_ || $home);
       $links .= div({-style=>"text-indent: ${indent}em; $parent_style"},
@@ -309,14 +311,15 @@ sub generate_navpath_arrows {
   my $home =  $self->home_label;
 
   my @components = split '/',$uri;
+  unshift @components,'' unless @components;
   my $path;
   my $links = start_h1();
   my $arrow = $self->arrow_icon;
   foreach (@components) {
     $links .= '&nbsp;' . img({-src=>$arrow}) if $path;
-    $path .= "$_/";
+    $path .= escape($_) . "/";
     if ($_ eq $components[-1]) {
-      $links .= "&nbsp;$_";
+      $links .= "&nbsp;". ($_ || $home);
     } else {
        $links .= '&nbsp;' . a({-href=>$path},$_ || $home);
     }
@@ -343,28 +346,28 @@ sub directory_bottom {
 }
 
 
-# print the HTML at the top of the list of albums
-sub album_list_top {
+# print the HTML at the top of the list of subdirs
+sub subdir_list_top {
   my $self   = shift;
-  my $albums = shift;  # array reference
+  my $subdirs = shift;  # array reference
   print hr;
-  print h2({-class=>'CDdirectories'}, sprintf('CD Directories (%d)',scalar @$albums));
+  print h2({-class=>'CDdirectories'}, sprintf('CD Directories (%d)',scalar @$subdirs));
 }
 
-# print the HTML at the bottom of the list of albums
-sub album_list_bottom {
+# print the HTML at the bottom of the list of subdirs
+sub subdir_list_bottom {
   my $self   = shift;
-  my $albums = shift;  # array reference
+  my $subdirs = shift;  # array reference
 }
 
-# print the HTML to format the list of albums
-sub album_list {
+# print the HTML to format the list of subdirs
+sub subdir_list {
   my $self   = shift;
-  my $albums = shift; #array reference
-  my @albums = $self->sort_albums($albums);
+  my $subdirs = shift; #array reference
+  my @subdirs = $self->sort_subdirs($subdirs);
 
-  my $cols = $self->album_columns;
-  my $rows =  int(0.99 + @albums/$cols);
+  my $cols = $self->subdir_columns;
+  my $rows =  int(0.99 + @subdirs/$cols);
 
   print start_center,
         start_table({-border=>0,-width=>'95%'}),"\n";
@@ -373,7 +376,7 @@ sub album_list {
     print start_TR({-valign=>'BOTTOM'});
     for (my $col=0; $col<$cols; $col++) {
       my $i = $col * $rows + $row;
-      my $contents = $albums[$i] ? $self->format_album($albums[$i]) : '&nbsp;';
+      my $contents = $subdirs[$i] ? $self->format_subdir($subdirs[$i]) : '&nbsp;';
       print td($contents);
     }
     print end_TR,"\n";
@@ -382,31 +385,33 @@ sub album_list {
 }
 
 # given a list of CD directories, sort them
-sub sort_albums {
+sub sort_subdirs {
   my $self = shift;
-  my $albums = shift;
-  return sort @$albums; # alphabetic sort by default
+  my $subdirs = shift;
+  return sort @$subdirs; # alphabetic sort by default
 }
 
-# format an album entry and return its HTML
-sub format_album {
+# format an subdir entry and return its HTML
+sub format_subdir {
   my $self = shift;
-  my $album = shift;
-  my $result = table(Tr({-align=>'CENTER'},
-			td({-class=>'albumicon'},
-			   a({-href=>escape($album).'/playlist.m3u?Play+All+Recursive=1'},
-			     img({-src=>$self->cd_list_icon,
-				  -alt=>'Play Contents',
-				  -border=>0}))),
-			td(a({-href=>escape($album).'/'},font({-class=>'albumtitle'},$album)))),
-		     Tr(
-			td({-colspan=>2},
-			   a({-class=>'albumicon',
-			      -href=>escape($album).'/playlist.m3u?Shuffle+All+Recursive=1'},'[Shuffle]'),
-			   a({-class=>'albumicon',
-			      -href=>escape($album).'/playlist.m3u?Play+All+Recursive=1'},'[Stream]'))
-			)
-		     );
+  my $subdir = shift;
+  my $nb = '&nbsp;';
+  (my $title = $subdir) =~ s/\s/$nb/og;  # replace whitespace with &nbsp;
+  my $result = p(
+		 a({-href=>escape($subdir).'/playlist.m3u?Play+All+Recursive=1'},
+		   img({-src=>$self->cd_list_icon,
+			-align=>'ABSMIDDLE',
+			-class=>'subdir',
+			-alt=>'Play Contents',
+			-border=>0}))
+		 .$nb.
+			  a({-href=>escape($subdir).'/'},font({-class=>'subdirectory'},$title)),
+		 br,
+		 a({-class=>'subdirbuttons',
+		    -href=>escape($subdir).'/playlist.m3u?Shuffle+All+Recursive=1'},'[Shuffle]')
+		 .$nb.
+		 a({-class=>'subdirbuttons',
+		    -href=>escape($subdir).'/playlist.m3u?Play+All+Recursive=1'},'[Stream]'));
   return $result;
 }
 
@@ -421,19 +426,19 @@ sub get_help {
   return
     a({-href        => $url,
        -frame       => '_new',
-       -onClick     => qq(window.open("$url","","height=$height,width=$width"); return false),
+       -onClick     => qq(window.open('$url','','height=$height,width=$width'); return false),
        -onMouseOver => "status='Show Help Window';return true",
       },
       'Quick Help Summary');
 }
 
-# this is called to display the albums (subdirectories) within the current directory
-sub list_albums {
+# this is called to display the subdirs (subdirectories) within the current directory
+sub list_subdirs {
   my $self   = shift;
-  my $albums = shift;  # arrayref
-  $self->album_list_top($albums);
-  $self->album_list($albums);
-  $self->album_list_bottom($albums);
+  my $subdirs = shift;  # arrayref
+  $self->subdir_list_top($subdirs);
+  $self->subdir_list($subdirs);
+  $self->subdir_list_bottom($subdirs);
 }
 
 # this is called to display the MP3 files within the current directory
@@ -600,7 +605,7 @@ sub fetch_info {
   my $title_string = $title || $base;
 
   $title_string .= " - $artist" if $artist;
-  $title_string .= " ($album)" if $album;
+  $title_string .= " ($album)"  if $album;
 
   %data =(title        => $title || $base,
 	  artist       => $artist,
@@ -673,26 +678,27 @@ sub send_stream {
   $r->print("icy-notice2:Apache::MP3 module<BR>$CRLF");
   $r->print("icy-name:$title$CRLF");
   $r->print("icy-genre:$genre$CRLF");
-  $r->print("icy-url:",'http://',$r->hostname,':',$r->server->port,"$CRLF");
+  $r->print("icy-url:",$self->stream_base(),$CRLF);  # interferes with nice scrolling display in xmms
   $r->print("icy-pub:1$CRLF");
   $r->print("icy-br:$info->{BITRATE}$CRLF");
   $r->print("$CRLF");
   return OK if $r->header_only;
 
   if (my $timeout = $self->stream_timeout) {
-    eval {
-      local $SIG{ALRM} = sub {die "timeout\n" };
-      my $buffer;
-      alarm($timeout);
-      $r->send_fd(\*FILE);
-    };
-    alarm(0);
+    my $seconds  = $info->{seconds};
+    my $fraction = $timeout/$seconds;
+    my $bytes    = int($fraction * -s $file);
+    while ($bytes > 0) {
+      my $data;
+      my $b = read(FILE,$data,2048) || last;
+      $bytes -= $b;
+      $r->print($data);
+    }
+    return OK;
   }
 
-  else {
-    $r->send_fd(\*FILE);
-  }
-
+  # we get here for untimed transmits
+  $r->send_fd(\*FILE);
   return OK;
 }
 
@@ -748,7 +754,9 @@ sub stream_timeout {
 sub file_list_is_long { shift->r->dir_config('LongList') || 10 }
 
 sub home_label {
-  shift->r->dir_config('HomeLabel') || 'Home';
+  my $self = shift;
+  my $home = $self->r->dir_config('HomeLabel') || 'Home';
+  return lc($home) eq 'hostname' ? $self->r->hostname : $home;
 }
 
 sub path_style {  # style for the path to parent directories
@@ -763,7 +771,7 @@ sub cache_dir    {
 }
 
 # columns to display
-sub album_columns {shift->r->dir_config('AlbumColumns') || ALBUMCOLUMNS  }
+sub subdir_columns {shift->r->dir_config('SubdirColumns') || SUBDIRCOLUMNS  }
 
 # various configuration variables
 sub default_dir  { shift->r->dir_config('BaseDir') || BASE_DIR  }
@@ -774,6 +782,23 @@ sub cd_list_icon { shift->get_dir('DirectoryIcon',CDLISTICON)   }
 sub song_icon    { shift->get_dir('SongIcon',SONGICON)          }
 sub arrow_icon   { shift->get_dir('ArrowIcon',ARROWICON)        }
 sub help_url     { shift->get_dir('HelpURL',HELPURL)  }
+sub stream_base {
+  my $self = shift;
+  my $r = $self->r;
+  my $basename = $r->dir_config('StreamBase');
+  return $basename if $basename;
+  my $auth_info;
+  my ($res,$pw) = $r->get_basic_auth_pw;
+  if ($res == 0) { # authentication in use
+    my $user = $r->connection->user;
+    $auth_info = "$user:$pw\@";
+  }
+  $basename = "http://$auth_info" . $r->hostname;
+  $basename .= ':' . $r->get_server_port 
+    unless $r->get_server_port == 80;
+  return $basename;
+}
+
 
 # patterns to skip
 sub skip_directory { 
@@ -910,7 +935,7 @@ be working, checking the server error log for informative messages.
 Apache::MP3 can be customized in three ways: (1) by changing
 per-directory variables; (2) changing settings in the Apache::MP3
 cascading stylesheet; and (3) subclassing Apache::MP3 or
-Apache::MP3::Sort.
+Apache::MP3::Sorted.
 
 =head2 Per-directory configuration variables
 
@@ -935,7 +960,7 @@ explanation of each follows.
  ReadMP3Info	       yes|no		yes
 
  StreamTimout          integer          0
- AlbumColumns	       integer		3
+ SubdirColumns	       integer		3
  LongList	       integer		10
  Fields                list             title,artist,duration,bitrate
  SortField             field name       filename
@@ -944,6 +969,7 @@ explanation of each follows.
  BaseDir	       URL		/apache_mp3
  CacheDir              path             -none-
  HomeLabel	       string		"Home"
+ StreamBase            URL              -none-
 
  Stylesheet	       URL		apache_mp3.css
  TitleIcon	       URL		cd_icon.gif
@@ -998,7 +1024,7 @@ Because this feature does not take into account TCP-buffered song
 data, the actual music may not stop playing until five or 10 seconds
 later.
 
-=item AlbumColumns I<integer>
+=item SubdirColumns I<integer>
 
 The number of columns in which to display subdirectories (the small
 "CD icons").  Default 3.
@@ -1112,6 +1138,24 @@ This is the label for the link used to return to the site's home
 page.  You may use plain text or any fragment of HTML, such as an
 <IMG> tag.
 
+=item StreamURL I<URL>
+
+A URL to use as the base for streaming.  The default is to use the
+same host for both directory listings and streaming.  This may be of
+use for transparent reverse proxies.
+
+Example:
+
+If the song requested is http://www.foobar.com/Songs/Madonna_live.m3u?stream=1
+
+and B<StreamURL> is set to I<http://streamer.myhost.net>, then the URL
+placed in the playlist will be
+
+ http://streamer.myhost.net/Songs/Madonna_live.m3u?stream=1
+
+A more general rewrite facility is not available, but might be added
+if requested.
+
 =item HelpURL I<URL:widthxheight>
 
 The URL of the page to display when the user presses the "Quick Help
@@ -1140,8 +1184,8 @@ following table describes the tags that can be customized:
  TR.title             Style for the top line of the song listing
  TR.normal            Style for odd-numbered song listing lines
  TR.highlight         Style for even-numbered song listing lines
- .albumtitle          Style for the titles of song directories
- .albumicon           Style for the icon and [Stream] label of song directories
+ .directory           Style for the title of the current directory
+ .subdirectory        Style for the title of subdirectories
  P                    Ordinary paragraphs
  A                    Links
  INPUT                Fill-out form fields
@@ -1279,17 +1323,17 @@ study it alongside a representative HTML page:
     <CDICON> <DIRECTORY> -> <DIRECTORY> -> <DIRECTORY>
     [Shuffle All] [Stream All]
 
-    list_albums()
+    list_subdirs()
 
-         album_list_top()
+         subdir_list_top()
          ------------------------------------------------------------
          <CD Directories (6)>
 
-         album_list()
+         subdir_list()
                <cdicon> <title>   <cdicon> <title>  <cdicon> <title>
                <cdicon> <title>   <cdicon> <title>  <cdicon> <title>
 
-         album_list_bottom()  # does nothing
+         subdir_list_bottom()  # does nothing
          ------------------------------------------------------------
 
     list_mp3s()
@@ -1420,40 +1464,40 @@ displayed on a single line, separated by arrows.
 This method generates the bottom part of the directory listing,
 including the module attribution and help information.
 
-=item $mp3->album_list_top($directories)
+=item $mp3->subdir_list_top($directories)
 
 This method generates the heading at the top of the list of
 subdirectories.  C<$directories> is an arrayref containing the
 subdirectories to list.
 
-=item $mp3->album_list_bottom($directories)
+=item $mp3->subdir_list_bottom($directories)
 
 This method generates the footer at the bottom of the list of
 subdirectories given by C<$directories>.  Currently it does nothing.
 
-=item $mp3->album_list($directories)
+=item $mp3->subdir_list($directories)
 
-This method invokes sort_albums() to sort the subdirectories given by
+This method invokes sort_subdirs() to sort the subdirectories given by
 C<$directories> and displays them in a nicely-formatted table.
 
-=item @directories = $mp3->sort_albums($directories)
+=item @directories = $mp3->sort_subdirs($directories)
 
 This method sorts the subdirectories given in C<$directories> and
 returns a sorted B<list> (not an arrayref).
 
-=item $html = $mp3->format_album($directory)
+=item $html = $mp3->format_subdir($directory)
 
 This method formats the indicated subdirectory by creating a fragment
 of HTML containing the little CD icon, the shuffle and stream links,
 and the subdirectory's name.  It returns an HTML fragment used by
-album_list().
+subdir_list().
 
 =item $mp3->get_help
 
 This subroutine generates the "Quick Help Summary" link at the bottom
 of the page.
 
-=item $mp3->list_albums($subdirectories)
+=item $mp3->list_subdirs($subdirectories)
 
 This is the top-level subroutine for listing subdirectories (the part
 of the page in which the little CD icons appears).  C<$subdirectories>
@@ -1595,7 +1639,7 @@ or "staircase".
 
 Returns the directory for use in caching MP3 tag information
 
-=item $int = $mp3->album_columns
+=item $int = $mp3->subdir_columns
 
 Returns the number of columns to use in displaying subdirectories
 (little CD icons).
@@ -1631,6 +1675,21 @@ You may subclass this to skip over other directories.
 
 =head1 BUGS
 
+Although it is pure Perl, this module relies on an unusual number of
+compiled modules.  Perhaps for this reason, it appears to be sensitive
+to certain older versions of modules.
+
+=head2 Can't find Apache::File at run time
+
+David Wheeler <dwheeler@salon.com> has reported problems relating to
+Apache::File, in which the module fails to run, complaining that it
+can't find Apache::File in @INC.  This affects Apache/1.3.12
+mod_perl/1.24.  Others have not yet reported this problem.  This can
+be worked around by replacing all occurrences of Apache::File with
+IO::File.
+
+=head2 Random segfaults in httpd children
+
 Before upgrading to Apache/1.3.6 mod_perl/1.24, I would see random
 segfaults in the httpd children when using this module.  This problem
 disappeared when I installed a newer mod_perl.
@@ -1648,6 +1707,20 @@ my perl.startup file:
  use Apache::MP3;
  use CGI();
  use CGI::Carp ();
+
+=head2 Can't use -d $r->finfo
+
+Versions of mod_perl prior to 1.22 crash when using the idiom -d
+$r->finfo (or any other idiom).  Since there are many older versions
+still out there, I have replaced $r->finfo with $r->filename and
+marked their locations in comments.  To get increased performance,
+change back to $r->finfo.
+
+=head2 Misc
+
+In the directory display, the alignment of subdirectory icon with the
+subdirectory title is a little bit off.  I want to move the title a
+bit lower using some stylesheet magic.  Can anyone help?
 
 =head1 SEE ALSO
 

@@ -1,5 +1,10 @@
 Revision history for Perl extension Apache::MP3.
 
+2.05 Fri Aug 25 08:10:04 EDT 2000
+	Changed directory layout to get faster loading
+	Now supports HTTP authentication (passwords)
+	Supports directories with spaces and funny characters
+
 2.04 Tue Aug 22 04:38:07 PDT 2000
 	Completely revamped to make more object oriented
 	Apahce::MP3::Sorted subclass
