@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.8 2001/06/10 21:58:22 lstein Exp $
+# $Id: MP3.pm,v 1.9 2001/07/17 01:37:23 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE);
@@ -11,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '2.18';
+$VERSION = '2.19';
 my $CRLF = "\015\012";
 
 # defaults:
@@ -873,7 +873,13 @@ sub send_stream {
   my $description = $info->{description};
   my $genre = $info->{genre} || 'unknown';
 
-  $r->print("ICY 200 OK$CRLF");
+  my $range = 0;
+  $r->header_in("Range")
+    and $r->header_in("Range") =~ m/bytes=(\d+)/
+    and $range = $1
+    and seek($fh,$range,0);
+
+  $r->print("ICY ". ($range ? 206 : 200) ." OK$CRLF");
   $r->print("icy-notice1:<BR>This stream requires a shoutcast/icecast compatible player.<BR>$CRLF");
   $r->print("icy-notice2:Apache::MP3 module<BR>$CRLF");
   $r->print("icy-name:$description$CRLF");
@@ -882,6 +888,8 @@ sub send_stream {
   $r->print("icy-pub:1$CRLF");
   $r->print("icy-br:$bitrate$CRLF");
   $r->print("Accept-Ranges: bytes$CRLF");
+  $r->print("Content-Range: bytes $range-" . ($size-1) . "/$size$CRLF")
+    if $range;
   $r->print("Content-Length: $size$CRLF");
   $r->print("Content-Type: audio/mpeg$CRLF");
   $r->print("$CRLF");

@@ -1,3 +1,7 @@
+2.19 Mon Jul 16 21:36:15 EDT 2001
+	- Patch for Ask Bjoern Hansen to support the scroll bar when
+		streaming to WinAmp.
+
 2.18 Sun Jun 10 17:21:36 EDT 2001
 	- Patch from Chris Nandor to get the file size approximately
 		right when streaming downsampled files.
