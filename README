@@ -1,0 +1,7 @@
+Apache::MP3 generates MP3 playlists for streaming audio.  It is
+essentially identical to the module described in The Perl Journal #15
+(www.tpj.com), but has some bug fixes.
+
+Lincoln Stein
+lstein@cshl.org
+
