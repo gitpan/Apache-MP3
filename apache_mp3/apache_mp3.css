@@ -19,9 +19,14 @@ H2 {
   /* font-style: italic; */
 }
 
-TABLE {
+#diroutertable {
   width: 100%;
 }
+
+/* Replaced TABLE since it was messing up the new table inside cd dirs, causing alignment problems
+TABLE {
+  width: 100%;
+} */
 
 TR.title {
   /* font-family: sans-serif; */

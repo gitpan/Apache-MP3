@@ -1,6 +1,6 @@
 package Apache::MP3::Resample;
 
-# $Id: Resample.pm,v 1.5 2002/08/26 18:52:29 lstein Exp $
+# $Id: Resample.pm,v 1.7 2003/10/06 14:10:30 lstein Exp $
 # Resamples (downsamples) on the fly
 
 use strict;
@@ -11,6 +11,7 @@ use CGI qw(:standard *table *TR *td escape);
 use CGI::Cookie;
 use Apache::MP3::Playlist;
 use File::Basename;
+$VERSION = 1.0;
 
 @ISA = 'Apache::MP3::Playlist';
 
@@ -162,7 +163,7 @@ sub open_file {
   my $presets = $self->presets($bitrate);
   my $type = $self->r->lookup_file($file)->content_type;
   my $decompress = $self->decompressor ($type) || "";
-  my $encode = ENCODE;
+  my $encode = $self->r->dir_config('MP3Encoder') || ENCODE;
   my $inputtype = length $decompress ? "" : " --mp3input";
   my $percentF = length $decompress ? "" : ("<" . quotemeta ($file));
   $decompress =~ s{%([a-zA-Z])}
