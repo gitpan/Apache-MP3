@@ -1,5 +1,5 @@
 package Apache::MP3;
-# $Id: MP3.pm,v 1.13 2002/08/16 04:14:57 lstein Exp $
+# $Id: MP3.pm,v 1.14 2002/08/18 17:33:49 lstein Exp $
 
 use strict;
 use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT DIR_MAGIC_TYPE HTTP_NOT_MODIFIED);
@@ -11,7 +11,7 @@ use File::Basename 'dirname','basename';
 use File::Path;
 use vars qw($VERSION);
 
-$VERSION = '3.00';
+$VERSION = '3.01';
 my $CRLF = "\015\012";
 
 # defaults:

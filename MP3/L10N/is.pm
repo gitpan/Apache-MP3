@@ -14,8 +14,8 @@ sub encoding { "iso-8859-1" }   # Latin-1
   # Change as necessary if you use a different encoding
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last modified
 
  # These are links as well as button text:
  'Play All' => "Spila allt",

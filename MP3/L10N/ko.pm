@@ -14,8 +14,8 @@ sub language_tag {__PACKAGE__->SUPER::language_tag}
 sub encoding { "euc-kr" }
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last modified
 
  # Note: Basically, "stream" means "play" for this system.
 

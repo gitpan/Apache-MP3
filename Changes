@@ -1,3 +1,7 @@
+3.01 Sun Aug 18 13:32:59 EDT 2002
+	-Changed the way that $VERSION is defined in the localization modules
+	in order to live peacefully with CPAN.
+
 3.00 Fri Aug 16 00:12:33 EDT 2002
 	- Extensive contribution from Sean Burke to provide localization and
 		internationalization.

@@ -15,8 +15,8 @@ sub encoding { "iso-8859-9" }   #Latin 5
   # in web browsers.
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last modified
 
  # Note: Basically, "stream" means "play" for this system.
 

@@ -12,8 +12,8 @@ sub encoding {'euc-cn'} # euc-cn (gb2312)
 sub language_tag {__PACKAGE__->SUPER::language_tag}
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last modified
 
  # These are links as well as button text:
  'Play All' => "È«²¿²¥·Å",

@@ -1,6 +1,6 @@
 package Apache::MP3::Resample;
 
-# $Id: Resample.pm,v 1.3 2002/08/16 04:14:57 lstein Exp $
+# $Id: Resample.pm,v 1.4 2002/08/18 17:33:49 lstein Exp $
 # Resamples (downsamples) on the fly
 
 use strict;
@@ -12,6 +12,7 @@ use CGI::Cookie;
 use Apache::MP3::Playlist;
 
 @ISA = 'Apache::MP3::Playlist';
+$VERSION = '1.10';
 
 use constant ENCODE => qq(lame --mp3input %b - <%f);
 my @PRESET_DEFAULTS = (

@@ -10,8 +10,8 @@ use vars qw(@ISA %Lexicon $VERSION);
 @ISA = ('Locale::Maketext');
 %Lexicon = (
   _AUTO => 1,
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020601'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020601'), # Last modified
 
  "_CREDITS_before_author" => "Apache::MP3 was written by ",
  "_CREDITS_author" =>        "Lincoln D. Stein",

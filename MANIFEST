@@ -42,7 +42,6 @@ MP3/L10N/x_marklar.pm
 MP3/L10N/zh_cn.pm
 MP3/L10N/zh_tw.pm
 MP3/Playlist.pm
-MP3/Playlist.pm.rej
 MP3/Resample.pm
 MP3/Sorted.pm
 Makefile.PL

@@ -18,8 +18,8 @@ sub encoding { "windows-1251" }   # Windows
 # Below I use a lot of &foo; codes, but you don't have to.
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last modified
 
  # Note: Basically, "stream" means "play" for this system.
 

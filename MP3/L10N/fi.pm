@@ -11,8 +11,8 @@ sub language_tag {__PACKAGE__->SUPER::language_tag}
 #  jhi@iki.fi
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last modified
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last modified
 
  # These are links as well as button text:
  'Play All' => "Soita kaikki",

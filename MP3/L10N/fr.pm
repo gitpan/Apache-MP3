@@ -24,8 +24,8 @@ sub encoding { "iso-8859-1" }   # Latin-1
 # Below I use a lot of &foo; codes, but you don't have to.
 
 %Lexicon = (
- '_VERSION' => __PACKAGE__ . ' v' . ($VERSION =
-   '20020612'), # Last-modified date
+ '_VERSION' => __PACKAGE__ . ' v' . 
+ ($VERSION=   '20020612'), # Last-modified date
     #
     # If you're a translator, put today's date there in the form
     #  year-month-day, but with no dashes.  Example: Jan 02, 2003
