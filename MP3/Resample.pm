@@ -5,7 +5,7 @@ package Apache::MP3::Resample;
 
 use strict;
 use vars qw(@ISA $VERSION);
-use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT);
+use Apache2::Const -compile => qw(:common);
 use IO::File;
 use CGI qw(:standard *table *TR *td escape);
 use CGI::Cookie;
@@ -60,7 +60,7 @@ sub process_cookies {
   # don't set cookies for ordinary MP3 file downloads.
   return if !param() && !-d $r->filename;
 
-  if (my $cookies = CGI::Cookie->parse($r->header_in('Cookie'))) {
+  if (my $cookies = CGI::Cookie->parse($r->headers_in('Cookie'))) {
     $self->bitrate($cookies->{bitrate}->value)
       if $cookies->{bitrate};
   }

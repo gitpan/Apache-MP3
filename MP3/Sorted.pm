@@ -1,5 +1,5 @@
 package Apache::MP3::Sorted;
-# $Id: Sorted.pm,v 1.3 2003/09/18 18:05:00 eharris Exp $
+# $Id: Sorted.pm,v 1.4 2006/01/03 19:37:52 lstein Exp $
 # example of how to subclass Apache::MP3 in order to provide
 # control over the sorting of the rows of the MP3 table
 
@@ -10,7 +10,7 @@ use CGI qw/:standard *TR param/;
 use vars qw(@ISA $VERSION);
 @ISA = 'Apache::MP3';
 
-$VERSION = 2.01;
+$VERSION = 2.02;
 
 use constant DEBUG => 0;
 
@@ -32,10 +32,6 @@ my %sort_modes = (
 		  track       => [qw(track        numeric)],
 		  year        => [qw(year         numeric)],
 		 );
-
-#sub handler {
-#  __PACKAGE__->handle_request(@_);
-#}
 
 sub sort_fields {
   my $self       = shift;
@@ -61,7 +57,7 @@ sub sort_mp3s {
     $reverse_sort = ($reverse_sort eq '-');
     if (exists($sort_modes{$field})) {
       # each @sort_info entry is [sort_order, sort_field, sort_type]
-      push(@sort_info, [$reverse_sort, $field, $sort_modes{$field}[1]]);
+      push(@sort_info, [$reverse_sort, $sort_modes{$field}[0], $sort_modes{$field}[1]]);
     } else {
       $self->r->warn("Ignoring unsupported sort field $_ in sort_mp3s().");
     }
@@ -94,22 +90,19 @@ sub sort_mp3s {
   return sort $by_fields_sorter keys %$files;
 }
 
-sub mp3_table_header {
+sub format_table_fields {
   my $self = shift;
+  my $sort = param('sort') || '';
   my @fields;
 
   foreach ($self->fields) {
-    my $sort = param('sort') eq lc($_)  ? lc("-$_") : lc($_);
+    $_ ||= '';
+    my $sort = $sort eq lc($_)  ? lc("-$_") : lc($_);
     push @fields,a({-href=>"?sort=$sort"},
       $self->x(ucfirst($_))
     );
   }
-
-  print TR({-class=>'title',$self->aleft},
-	   th({-colspan=>2,-align=>'CENTER'},p($self->stream_ok ?
-	     $self->x('Select') : ''
-	   )),
-	   th(\@fields)),"\n";
+  @fields;
 }
 
 # Add hidden field for sorting

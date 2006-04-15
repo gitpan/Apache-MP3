@@ -1,22 +1,17 @@
 package Apache::MP3::Playlist;
-# $Id: Playlist.pm,v 1.5 2002/11/22 18:55:37 lstein Exp $
+# $Id: Playlist.pm,v 1.6 2006/01/03 19:37:52 lstein Exp $
 # generates playlists in cookies
 
 use strict;
 use vars qw(@ISA $VERSION);
-use Apache::Constants qw(:common REDIRECT HTTP_NO_CONTENT);
-use File::Basename 'dirname','basename';
+use Apache2::Const qw(:common REDIRECT HTTP_NO_CONTENT HTTP_NOT_MODIFIED);
+use File::Basename 'dirname','basename','fileparse';
 use CGI qw(:standard);
-use CGI::Cookie;
 use Apache::MP3::Sorted;
+use CGI::Session;
 
 @ISA = 'Apache::MP3::Sorted';
-$VERSION = 1.04;
-# $Id: Playlist.pm,v 1.5 2002/11/22 18:55:37 lstein Exp $
-
-#sub handler {
-#  __PACKAGE__->handle_request(@_);
-#}
+$VERSION = 1.05;
 
 sub run {
   my $self = shift;
@@ -25,35 +20,34 @@ sub run {
   $self->SUPER::run();
 }
 
+sub list_directory {
+  my $self = shift;
+  $self->r->headers_out->add(Expires => CGI::Util::expires('now'));
+  $self->SUPER::list_directory(@_);
+}
+
 sub process_playlist {
   my $self = shift;
   my $r = $self->r;
-  my (@playlist,$changed);
+  my @playlist;
+  my $changed;
 
-  if (my $cookies = CGI::Cookie->parse($r->header_in('Cookie'))) {
-    my $playlist = $cookies->{playlist};
-    @playlist = $playlist->value if $playlist;
-    if ($playlist[-1] &&
-	not $self->supported_type ($r->lookup_uri($playlist[-1])->content_type)) {
-      $self->{possibly_truncated}++;
-      pop @playlist;  # get rid of the last
-    }
-  }
+  my $playlist = $self->retrieve_playlist;
 
   if (param('Clear All')) {
-    @playlist = ();
+    @$playlist = ();
     $changed++;
   }
 
   if (param('Clear Selected')) {
     my %clear = map { $_ => 1 } param('file') or return HTTP_NO_CONTENT;
-    @playlist = grep !$clear{$_},@playlist;
+    @$playlist = grep !$clear{$_},@$playlist;
     $changed++;
   }
 
   if (param('Add All to Playlist')) {
     my %seen;
-    @playlist = grep !$seen{$_}++,(@playlist,@{$self->find_mp3s});
+    @$playlist = grep !$seen{$_}++,(@$playlist,@{$self->find_mp3s});
     $changed++;
   }
 
@@ -61,7 +55,7 @@ sub process_playlist {
     my $dir = dirname($r->uri);
     my @new = param('file') or return HTTP_NO_CONTENT;
     my %seen;
-    @playlist = grep !$seen{$_}++,(@playlist,map {"$dir/$_"} @new);
+    @$playlist = grep !$seen{$_}++,(@$playlist,map {"$dir/$_"} @new);
     $changed++;
   }
 
@@ -71,28 +65,53 @@ sub process_playlist {
   }
 
   if (param('Shuffle All') and param('playlist')) {
-    return HTTP_NO_CONTENT unless @playlist;
-    return $self->send_playlist(\@playlist,'shuffle');
+    return HTTP_NO_CONTENT unless @$playlist;
+    my @list = @$playlist;
+    return $self->send_playlist(\@list,'shuffle');
   }
 
   if (param('Play All') and param('playlist')) {
-    return HTTP_NO_CONTENT unless @playlist;
-    return $self->send_playlist(\@playlist);
+    return HTTP_NO_CONTENT unless @$playlist;
+    my @list = @$playlist;
+    return $self->send_playlist(\@list);
   }
 
   if ($changed) {
-    my $c = CGI::Cookie->new(-name  => 'playlist',
-			     -value => \@playlist);
-    tied(%{$r->err_headers_out})->add('Set-Cookie' => $c);
+    $self->flush;
     (my $uri = $r->uri) =~ s!playlist\.m3u$!!;
     $self->path_escape(\$uri);
     my $rand = int rand(100000);
-    $r->header_out(Location => "$uri?$rand");
+    $r->headers_out->add(Location => "$uri?$rand");
     return REDIRECT;
   }
 
-  $self->playlist(@playlist);
+  $self->playlist($playlist);
   return;
+}
+
+sub retrieve_playlist {
+  my $self = shift;
+  my $r    = $self->r;
+
+  my $session = $self->session;
+  $session->param(playlist=>[]) unless $session->param('playlist');
+
+  my $playlist = $session->param('playlist');
+  $r->err_headers_out->add('Set-Cookie' => CGI::Cookie->new(-name=>'apache_mp3',
+							    -value=>$session->id,
+							   ));
+  $playlist;
+}
+
+sub session {
+  my $self = shift;
+  local $CGI::Session::NAME = 'apache_mp3';
+  return $self->{session} ||= CGI::Session->new();
+}
+
+sub flush {
+  my $self = shift;
+  $self->session->flush;
 }
 
 sub directory_bottom {
@@ -182,7 +201,7 @@ sub directory_top {
 sub playlist {
   my $self = shift;
   my @p = $self->{playlist} ? @{$self->{playlist}} : ();
-  $self->{playlist} = [@_] if @_;
+  $self->{playlist} = shift if @_;
   return unless @p;
   return wantarray ? @p : \@p;
 }

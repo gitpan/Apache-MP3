@@ -1,10 +1,12 @@
-Namp! Version 3.X
+Apache::MP3 Version 4.0
 
-This module takes a hierarchy of directories containing MP3, Ogg Vorbis,
-or Wav audio files and presents it as a browsable and searchable song
-library for streaming over the web.  It requires the Apache web server,
-the mod_perl embedded Perl interpreter, and either or both of the
-MP3::Info and Ogg::Vorbis modules.
+This module takes a hierarchy of directories containing MP3, Ogg
+Vorbis, or Wav audio files and presents it as a browsable and
+searchable song library for streaming over the web.  It requires the
+Apache (version 2) web server, the mod_perl (version 2) embedded Perl
+interpreter, and either or both of the MP3::Info and Ogg::Vorbis
+modules. In addition, you must have Locale::Maketext and CGI::Session
+installed.
 
 Audio files are displayed in a list that shows the title, artist, duration
 and bitrate.  Subdirectories are displayed with "CD" icons. The user can
@@ -15,7 +17,7 @@ contents of a directory, or select a subset of songs to play.
 A DEMO is available at http://www.modperl.com/Songs.  In this demo, stream
 time is limited to 30 seconds in order to avoid copyright infringement.
 
-See the "screenshots" directory for some pictures of Namp! in action.
+See the "screenshots" directory for some pictures of Apache::MP3 in action.
 
 See below for CHANGES.
 
@@ -23,8 +25,8 @@ INSTALLATION
 
 1. Prequisites
 
-This module requires mod_perl, MP3::Info and Locale::Maketext, all of
-which are available on CPAN.  Locale::Maketext in turn requires
+This module requires mod_perl, MP3::Info, MP3::Icecast and Locale::Maketext,
+all of which are available on CPAN.  Locale::Maketext in turn requires
 I18N::LangTags.
 
 2. Configure MIME types
@@ -49,14 +51,12 @@ This module uses a set of icons and a cascading stylesheet to generate its
 song listings.  By default, the module expects to find them at the url
 /apache_mp3.  Create a directory named apache_mp3 in your document root,
 and copy into it the contents of the F<apache_mp3> directory from the
-Namp! distribution.
+Apache::MP3 distribution.
 
 You may change the location of this directory by setting the I<BaseDir>
 configuration variable.  See the I<Customizing> section for more details.
 
 4. Set Apache::MP3 to be the handler for the songs directory
-
-The core of Namp! is a perl module called Apache::MP3.
 
 In httpd.conf or access.conf, create a E<lt>LocationE<gt> or
 E<lt>DirectoryE<gt> section, and make Apache::MP3 the handler for this

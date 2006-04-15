@@ -1,3 +1,9 @@
+4.00
+	-Now works *only* with Apache2/mod_perl2.
+	-Removed searching functionality -- was not stable.
+        -Removed MP3::Icecast dependency -- this module cannot produce headers
+		needed by Apache2.
+
 3.05	Mon Oct  6 10:09:47 EDT 2003
 	-Put version back into Apache::Resample
 	-Performance and functionality improvements to search function
